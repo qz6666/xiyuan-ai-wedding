@@ -17,6 +17,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Trash2,
   UsersRound,
   Video,
 } from "lucide-react";
@@ -31,6 +32,13 @@ type Task = {
   status: TaskStatus;
 };
 
+type BudgetItem = {
+  id: number;
+  name: string;
+  total: number;
+  paid: number;
+};
+
 const tasks: Task[] = [
   { id: 1, title: "确定婚期与预算上限", stage: "第 1 天", status: "已完成" },
   { id: 2, title: "整理双方宾客名单", stage: "第 2 天", status: "进行中" },
@@ -38,10 +46,17 @@ const tasks: Task[] = [
   { id: 4, title: "筛选场地与四大金刚", stage: "本周", status: "待确认" },
 ];
 
-const budgetItems = [
-  { name: "场地餐饮", total: 138000, paid: 60000 },
-  { name: "婚礼策划", total: 42000, paid: 18000 },
-  { name: "摄影摄像", total: 26000, paid: 8000 },
+const budgetItems: BudgetItem[] = [
+  { id: 1, name: "场地餐饮", total: 138000, paid: 60000 },
+  { id: 2, name: "婚礼策划", total: 42000, paid: 18000 },
+  { id: 3, name: "摄影摄像", total: 26000, paid: 8000 },
+];
+
+const extraBudgetItems = [
+  { name: "婚纱礼服", total: 18000, paid: 5000 },
+  { name: "婚车花艺", total: 12000, paid: 3000 },
+  { name: "伴手礼", total: 9000, paid: 2000 },
+  { name: "婚礼甜品", total: 6000, paid: 1500 },
 ];
 
 const aiSuggestions = [
@@ -94,15 +109,16 @@ export function WeddingPlanner() {
   const [mode, setMode] = useState("文本");
   const [draft, setDraft] = useState(aiSuggestions);
   const [taskList, setTaskList] = useState(tasks);
+  const [budgetList, setBudgetList] = useState(budgetItems);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [notice, setNotice] = useState("AI 服务已就绪，输入需求即可生成今日计划。");
   const promptRef = useRef<HTMLInputElement>(null);
 
   const totals = useMemo(() => {
-    const total = budgetItems.reduce((sum, item) => sum + item.total, 0);
-    const paid = budgetItems.reduce((sum, item) => sum + item.paid, 0);
+    const total = budgetList.reduce((sum, item) => sum + item.total, 0);
+    const paid = budgetList.reduce((sum, item) => sum + item.paid, 0);
     return { total, paid, rate: Math.round((paid / total) * 100) };
-  }, []);
+  }, [budgetList]);
 
   function scrollToSection(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -155,13 +171,32 @@ export function WeddingPlanner() {
     setTaskList((current) => [
       ...current,
       {
-        id: current.length + 1,
+        id: Math.max(0, ...current.map((task) => task.id)) + 1,
         title: nextTask,
         stage: "新增",
         status: "待确认",
       },
     ]);
     setNotice(`已新增今日小事：${nextTask}`);
+  }
+
+  function deleteTask(taskId: number) {
+    const task = taskList.find((item) => item.id === taskId);
+    setTaskList((current) => current.filter((item) => item.id !== taskId));
+    setNotice(task ? `已删除今日小事：${task.title}` : "已删除今日小事。");
+  }
+
+  function addBudgetItem() {
+    const nextBudget =
+      extraBudgetItems[(budgetList.length - budgetItems.length) % extraBudgetItems.length];
+    setBudgetList((current) => [
+      ...current,
+      {
+        id: Math.max(0, ...current.map((item) => item.id)) + 1,
+        ...nextBudget,
+      },
+    ]);
+    setNotice(`已新增预算项：${nextBudget.name}，预算执行比例已同步更新。`);
   }
 
   return (
@@ -288,11 +323,22 @@ export function WeddingPlanner() {
                 <span className="task-icon">
                   <CheckCircle2 size={18} aria-hidden="true" />
                 </span>
-                <div>
+                <div className="task-copy">
                   <strong>{task.title}</strong>
                   <small>{task.stage}</small>
                 </div>
-                <span className={statusClass(task.status)}>{task.status}</span>
+                <div className="task-actions">
+                  <span className={statusClass(task.status)}>{task.status}</span>
+                  <button
+                    type="button"
+                    className="delete-task"
+                    onClick={() => deleteTask(task.id)}
+                    aria-label={`删除${task.title}`}
+                  >
+                    <Trash2 size={15} aria-hidden="true" />
+                    <span>删除</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -324,13 +370,17 @@ export function WeddingPlanner() {
             已支付 {currency(totals.paid)} · 当前执行 {totals.rate}%
           </p>
           <div className="budget-bars">
-            {budgetItems.map((item) => (
-              <div key={item.name}>
+            {budgetList.map((item) => (
+              <div key={item.id}>
                 <span>{item.name}</span>
                 <meter min={0} max={item.total} value={item.paid} />
               </div>
             ))}
           </div>
+          <button type="button" className="ghost-action budget-action" onClick={addBudgetItem}>
+            <Plus size={17} aria-hidden="true" />
+            添加预算
+          </button>
         </article>
 
         <article className="panel timeline-panel" id="details">
