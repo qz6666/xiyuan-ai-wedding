@@ -1,0 +1,25 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="160" height="160" rx="80" fill="#6F0F1C"/>
+  <circle cx="80" cy="80" r="68" fill="url(#paint0_linear)" stroke="#F1CF84" stroke-width="5"/>
+  <circle cx="80" cy="80" r="53" fill="#8F1725" stroke="#D9A84E" stroke-width="2"/>
+  <circle cx="80" cy="80" r="43" fill="#781925" stroke="#F1CF84" stroke-width="1.5" opacity="0.92"/>
+  <text
+    x="80"
+    y="95"
+    text-anchor="middle"
+    font-family="SimSun, 'Noto Serif SC', 'Microsoft YaHei', serif"
+    font-size="64"
+    font-weight="900"
+    fill="#F6D98F"
+    stroke="#F1CF84"
+    stroke-width="1.2"
+    paint-order="stroke fill"
+  >喜</text>
+  <defs>
+    <linearGradient id="paint0_linear" x1="35" y1="29" x2="124" y2="135" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B82435"/>
+      <stop offset="0.52" stop-color="#8F1725"/>
+      <stop offset="1" stop-color="#C99A48"/>
+    </linearGradient>
+  </defs>
+</svg>
