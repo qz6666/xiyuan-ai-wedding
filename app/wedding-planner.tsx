@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   Heart,
   Image as ImageIcon,
+  ListChecks,
   Play,
   Plus,
   RotateCcw,
@@ -31,6 +32,10 @@ type Task = {
   title: string;
   stage: string;
   status: TaskStatus;
+  assignee: string;
+  dueDate: string;
+  notes: string;
+  criteria: string;
 };
 
 type BudgetItem = {
@@ -46,7 +51,25 @@ type CollaborationItem = {
   done: boolean;
 };
 
+type CoupleProfile = {
+  brideName: string;
+  groomName: string;
+  weddingDate: string;
+  city: string;
+  guestCount: number;
+  style: string;
+  budgetCap: number;
+};
+
+type StagePlan = {
+  title: string;
+  window: string;
+  status: TaskStatus;
+  tasks: string[];
+};
+
 type SavedWorkspace = {
+  profile: CoupleProfile;
   taskList: Task[];
   budgetList: BudgetItem[];
   collaborationList: CollaborationItem[];
@@ -56,14 +79,61 @@ type SavedWorkspace = {
   aiConfigured: boolean;
 };
 
-const STORAGE_KEY = "xiyuan-wedding-workspace-v1";
+const STORAGE_KEY = "xiyuan-wedding-workspace-v2";
+const LEGACY_STORAGE_KEY = "xiyuan-wedding-workspace-v1";
 const taskStatuses: TaskStatus[] = ["待确认", "进行中", "已完成"];
 
+const defaultProfile: CoupleProfile = {
+  brideName: "新娘",
+  groomName: "新郎",
+  weddingDate: "2026-10-01",
+  city: "杭州",
+  guestCount: 120,
+  style: "红金中式",
+  budgetCap: 220000,
+};
+
 const tasks: Task[] = [
-  { id: 1, title: "确定婚期与预算上限", stage: "第 1 天", status: "已完成" },
-  { id: 2, title: "整理双方宾客名单", stage: "第 2 天", status: "进行中" },
-  { id: 3, title: "收集喜欢的婚礼风格图", stage: "第 3 天", status: "待确认" },
-  { id: 4, title: "筛选场地与四大金刚", stage: "本周", status: "待确认" },
+  {
+    id: 1,
+    title: "确定婚期与预算上限",
+    stage: "第 1 天",
+    status: "已完成",
+    assignee: "两人一起",
+    dueDate: "2026-07-25",
+    notes: "先确认预算上限，再拆场地、策划、影像等大项。",
+    criteria: "婚期、城市、预算上限三项都填写完成。",
+  },
+  {
+    id: 2,
+    title: "整理双方宾客名单",
+    stage: "第 2 天",
+    status: "进行中",
+    assignee: "双方家庭",
+    dueDate: "2026-07-28",
+    notes: "先粗分亲友、同事、同学，再确认是否携伴。",
+    criteria: "完成第一版名单，并标记待确认人数。",
+  },
+  {
+    id: 3,
+    title: "收集喜欢的婚礼风格图",
+    stage: "第 3 天",
+    status: "待确认",
+    assignee: "新娘",
+    dueDate: "2026-08-02",
+    notes: "保留 8-12 张喜欢的图，避免风格过多。",
+    criteria: "确定 3 个关键词和 1 个主色方向。",
+  },
+  {
+    id: 4,
+    title: "筛选场地与四大金刚",
+    stage: "本周",
+    status: "待确认",
+    assignee: "新郎",
+    dueDate: "2026-08-08",
+    notes: "先筛档期和预算，再看作品风格。",
+    criteria: "每类至少留下 2 个可沟通候选。",
+  },
 ];
 
 const budgetItems: BudgetItem[] = [
@@ -142,6 +212,86 @@ function normalizeBudget(item: BudgetItem) {
   };
 }
 
+function normalizeTask(task: Partial<Task> & { id: number; title?: string }) {
+  return {
+    id: task.id,
+    title: task.title || "新的备婚任务",
+    stage: task.stage || "待安排",
+    status: task.status || "待确认",
+    assignee: task.assignee || "两人一起",
+    dueDate: task.dueDate || "",
+    notes: task.notes || "",
+    criteria: task.criteria || "完成后双方确认一次。",
+  };
+}
+
+function normalizeProfile(profile?: Partial<CoupleProfile>) {
+  return {
+    ...defaultProfile,
+    ...profile,
+    guestCount: Math.max(0, Math.round(Number(profile?.guestCount) || defaultProfile.guestCount)),
+    budgetCap: parseMoney(String(profile?.budgetCap ?? defaultProfile.budgetCap)),
+  };
+}
+
+function getDaysUntil(dateValue: string) {
+  if (!dateValue) return null;
+  const weddingDate = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(weddingDate.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.ceil((weddingDate.getTime() - today.getTime()) / 86400000);
+}
+
+function getCurrentStageIndex(daysUntil: number | null) {
+  if (daysUntil === null) return 0;
+  if (daysUntil > 180) return 0;
+  if (daysUntil > 120) return 1;
+  if (daysUntil > 75) return 2;
+  if (daysUntil > 30) return 3;
+  return 4;
+}
+
+function buildStagePlan(profile: CoupleProfile, daysUntil: number | null): StagePlan[] {
+  const currentIndex = getCurrentStageIndex(daysUntil);
+  const baseStages = [
+    {
+      title: "定预算与方向",
+      window: "婚前 6-12 个月",
+      tasks: [
+        `确认 ${profile.city} 婚礼预算上限为 ${currency(profile.budgetCap)}`,
+        `锁定 ${profile.style} 的婚礼关键词`,
+        `按 ${profile.guestCount} 位宾客估算桌数和场地规模`,
+      ],
+    },
+    {
+      title: "定场地与团队",
+      window: "婚前 4-6 个月",
+      tasks: ["预约场地看档期和菜单", "确认婚礼策划服务范围", "筛选摄影摄像与主持候选"],
+    },
+    {
+      title: "定四大金刚",
+      window: "婚前 2-4 个月",
+      tasks: ["确认摄影摄像档期", "试妆并确认妆造方案", "确定主持风格和仪式结构"],
+    },
+    {
+      title: "排流程与宾客",
+      window: "婚前 1-2 个月",
+      tasks: ["完成宾客名单和座位偏好", "确认婚礼当天流程表", "整理请柬、誓词和父母致辞"],
+    },
+    {
+      title: "婚前最终确认",
+      window: "婚前 30 天",
+      tasks: ["逐项确认供应商到场时间", "完成物料打包清单", "安排彩排和应急联系人"],
+    },
+  ];
+
+  return baseStages.map((stage, index) => ({
+    ...stage,
+    status: index < currentIndex ? "已完成" : index === currentIndex ? "进行中" : "待确认",
+  }));
+}
+
 function buildTaskTitle(mode: Mode, subject: string) {
   if (mode === "图片") return `整理「${subject}」的风格参考`;
   if (mode === "视频") return `完成「${subject}」的视频脚本初稿`;
@@ -173,6 +323,7 @@ function buildDraft(mode: Mode, subject: string) {
 }
 
 export function WeddingPlanner() {
+  const [profile, setProfile] = useState(defaultProfile);
   const [prompt, setPrompt] = useState("帮我把备婚拆成每天能完成的小事");
   const [mode, setMode] = useState<Mode>("文本");
   const [draft, setDraft] = useState(aiSuggestions);
@@ -182,19 +333,26 @@ export function WeddingPlanner() {
   const [aiConfigured, setAiConfigured] = useState(false);
   const [notice, setNotice] = useState("AI 服务已就绪，输入需求即可生成今日计划。");
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
+  const [openTaskId, setOpenTaskId] = useState<number | null>(tasks[0]?.id ?? null);
   const promptRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const restoreTimer = window.setTimeout(() => {
       try {
-        const saved = window.localStorage.getItem(STORAGE_KEY);
+        const saved =
+          window.localStorage.getItem(STORAGE_KEY) ||
+          window.localStorage.getItem(LEGACY_STORAGE_KEY);
         if (!saved) {
           setWorkspaceLoaded(true);
           return;
         }
 
         const workspace = JSON.parse(saved) as Partial<SavedWorkspace>;
-        if (Array.isArray(workspace.taskList)) setTaskList(workspace.taskList);
+        setProfile(normalizeProfile(workspace.profile));
+        if (Array.isArray(workspace.taskList)) {
+          setTaskList(workspace.taskList.map(normalizeTask));
+          setOpenTaskId(workspace.taskList[0]?.id ?? null);
+        }
         if (Array.isArray(workspace.budgetList)) {
           setBudgetList(workspace.budgetList.map(normalizeBudget));
         }
@@ -222,6 +380,7 @@ export function WeddingPlanner() {
     if (!workspaceLoaded) return;
 
     const workspace: SavedWorkspace = {
+      profile,
       taskList,
       budgetList,
       collaborationList,
@@ -231,7 +390,20 @@ export function WeddingPlanner() {
       aiConfigured,
     };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
-  }, [aiConfigured, budgetList, collaborationList, draft, mode, prompt, taskList, workspaceLoaded]);
+  }, [
+    aiConfigured,
+    budgetList,
+    collaborationList,
+    draft,
+    mode,
+    profile,
+    prompt,
+    taskList,
+    workspaceLoaded,
+  ]);
+
+  const daysUntil = useMemo(() => getDaysUntil(profile.weddingDate), [profile.weddingDate]);
+  const stagePlan = useMemo(() => buildStagePlan(profile, daysUntil), [daysUntil, profile]);
 
   const totals = useMemo(() => {
     const total = budgetList.reduce((sum, item) => sum + item.total, 0);
@@ -246,9 +418,14 @@ export function WeddingPlanner() {
   const completedTasks = taskList.filter((task) => task.status === "已完成").length;
   const taskProgress = taskList.length > 0 ? Math.round((completedTasks / taskList.length) * 100) : 0;
   const completedCollaboration = collaborationList.filter((item) => item.done).length;
+  const budgetGap = profile.budgetCap - totals.total;
 
   function scrollToSection(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function updateProfile(patch: Partial<CoupleProfile>) {
+    setProfile((current) => normalizeProfile({ ...current, ...patch }));
   }
 
   function startExperience() {
@@ -265,11 +442,11 @@ export function WeddingPlanner() {
   function configureService() {
     setAiConfigured((current) => !current);
     setDraft([
-      "AI 服务已按红金婚礼风格、预算提醒、协作清单三个模块完成配置。",
+      `AI 服务已读取 ${profile.city}、${profile.guestCount} 位宾客、${profile.style} 风格。`,
       "后续生成内容会优先保持喜庆、正式、好执行的语气。",
       "你可以继续输入需求，喜缘会自动拆成清单、文案或视频脚本。",
     ]);
-    setNotice("AI 服务配置已更新：文案、图片、视频入口已联动。");
+    setNotice("AI 服务配置已更新：新人资料、阶段计划、任务详情已联动。");
   }
 
   function selectMode(nextMode: Mode) {
@@ -286,17 +463,20 @@ export function WeddingPlanner() {
   function generatePlan() {
     const subject = prompt.trim() || "备婚计划";
     const generatedTitle = buildTaskTitle(mode, subject);
+    const generatedTask: Task = {
+      id: nextId(taskList),
+      title: generatedTitle,
+      stage: "AI 生成",
+      status: "待确认",
+      assignee: "两人一起",
+      dueDate: profile.weddingDate,
+      notes: `基于 ${profile.city}、${profile.style}、${profile.guestCount} 位宾客生成。`,
+      criteria: "确认内容能落地执行，并同步给相关负责人。",
+    };
 
     setDraft(buildDraft(mode, subject));
-    setTaskList((current) => [
-      ...current,
-      {
-        id: nextId(current),
-        title: generatedTitle,
-        stage: "AI 生成",
-        status: "待确认",
-      },
-    ]);
+    setTaskList((current) => [...current, generatedTask]);
+    setOpenTaskId(generatedTask.id);
     setNotice(`AI 已生成建议，并加入今日小事：${generatedTitle}`);
     scrollToSection("plan");
   }
@@ -304,16 +484,52 @@ export function WeddingPlanner() {
   function addTodayTask(title?: string) {
     const nextTitle =
       title?.trim() || prompt.trim() || extraTasks[taskList.length % extraTasks.length];
-    setTaskList((current) => [
-      ...current,
-      {
-        id: nextId(current),
-        title: nextTitle,
-        stage: "新增",
-        status: "待确认",
-      },
-    ]);
+    const newTask: Task = {
+      id: nextId(taskList),
+      title: nextTitle,
+      stage: "新增",
+      status: "待确认",
+      assignee: "两人一起",
+      dueDate: "",
+      notes: "",
+      criteria: "完成后双方确认一次。",
+    };
+
+    setTaskList((current) => [...current, newTask]);
+    setOpenTaskId(newTask.id);
     setNotice(`已新增今日小事：${nextTitle}`);
+  }
+
+  function applyStageTasks() {
+    const generatedTasks = stagePlan.flatMap((stage) =>
+      stage.tasks.map((title) => ({
+        id: 0,
+        title,
+        stage: stage.title,
+        status: stage.status,
+        assignee: stage.title.includes("预算") ? "两人一起" : "待分配",
+        dueDate: profile.weddingDate,
+        notes: `${stage.window}重点任务，适配 ${profile.city} ${profile.style} 婚礼。`,
+        criteria: "任务完成后更新状态，并同步给相关家人或供应商。",
+      })),
+    );
+
+    setTaskList((current) => {
+      const existingTitles = new Set(current.map((task) => task.title));
+      let nextTaskId = nextId(current);
+      const uniqueGenerated = generatedTasks
+        .filter((task) => !existingTitles.has(task.title))
+        .map((task) => ({ ...task, id: nextTaskId++ }));
+
+      if (uniqueGenerated.length === 0) {
+        setNotice("当前阶段任务已在清单里，无需重复添加。");
+        return current;
+      }
+
+      setOpenTaskId(uniqueGenerated[0].id);
+      setNotice(`已根据婚期生成 ${uniqueGenerated.length} 个阶段任务。`);
+      return [...current, ...uniqueGenerated];
+    });
   }
 
   function updateTask(taskId: number, patch: Partial<Task>) {
@@ -335,6 +551,7 @@ export function WeddingPlanner() {
   function deleteTask(taskId: number) {
     const task = taskList.find((item) => item.id === taskId);
     setTaskList((current) => current.filter((item) => item.id !== taskId));
+    setOpenTaskId((current) => (current === taskId ? null : current));
     setNotice(task ? `已删除今日小事：${task.title}` : "已删除今日小事。");
   }
 
@@ -370,6 +587,7 @@ export function WeddingPlanner() {
   }
 
   function resetWorkspace() {
+    setProfile(defaultProfile);
     setTaskList(tasks);
     setBudgetList(budgetItems);
     setCollaborationList(collaborationItems);
@@ -377,8 +595,10 @@ export function WeddingPlanner() {
     setMode("文本");
     setPrompt("帮我把备婚拆成每天能完成的小事");
     setAiConfigured(false);
+    setOpenTaskId(tasks[0]?.id ?? null);
     window.localStorage.removeItem(STORAGE_KEY);
-    setNotice("已恢复第一版默认备婚工作台。");
+    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    setNotice("已恢复第二版默认备婚工作台。");
   }
 
   return (
@@ -401,9 +621,9 @@ export function WeddingPlanner() {
         </div>
         <div className="nav-actions">
           <div className="nav-links">
+            <a href="#profile">新人资料</a>
             <a href="#plan">备婚计划</a>
-            <a href="#service">AI 服务</a>
-            <a href="#details">安心清单</a>
+            <a href="#details">阶段计划</a>
             <a href="#collaboration">协助清单</a>
           </div>
           <button type="button" onClick={startExperience}>
@@ -420,9 +640,9 @@ export function WeddingPlanner() {
             <span>像恋爱一样轻松</span>
           </h1>
           <p className="hero-subtitle">
-            把繁琐的婚礼筹备，拆成每天能完成的小事。
+            距离婚礼还有 {daysUntil === null ? "待确认" : `${Math.max(daysUntil, 0)} 天`}。
             <br />
-            AI 全程陪伴，不再焦虑，不再遗漏。
+            {profile.city} · {profile.style} · {profile.guestCount} 位宾客。
           </p>
 
           <div className="mode-pills" aria-label="生成模式">
@@ -494,6 +714,78 @@ export function WeddingPlanner() {
         </aside>
       </section>
 
+      <section className="profile-panel panel" id="profile">
+        <div className="section-title">
+          <UsersRound size={19} aria-hidden="true" />
+          <h2>新人资料配置</h2>
+        </div>
+        <div className="profile-grid">
+          <label>
+            新娘
+            <input
+              value={profile.brideName}
+              onChange={(event) => updateProfile({ brideName: event.target.value })}
+            />
+          </label>
+          <label>
+            新郎
+            <input
+              value={profile.groomName}
+              onChange={(event) => updateProfile({ groomName: event.target.value })}
+            />
+          </label>
+          <label>
+            婚期
+            <input
+              type="date"
+              value={profile.weddingDate}
+              onChange={(event) => updateProfile({ weddingDate: event.target.value })}
+            />
+          </label>
+          <label>
+            城市
+            <input
+              value={profile.city}
+              onChange={(event) => updateProfile({ city: event.target.value })}
+            />
+          </label>
+          <label>
+            宾客人数
+            <input
+              type="number"
+              min={0}
+              value={profile.guestCount}
+              onChange={(event) => updateProfile({ guestCount: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            婚礼风格
+            <input
+              value={profile.style}
+              onChange={(event) => updateProfile({ style: event.target.value })}
+            />
+          </label>
+          <label>
+            预算上限
+            <input
+              type="number"
+              min={0}
+              value={profile.budgetCap}
+              onChange={(event) => updateProfile({ budgetCap: parseMoney(event.target.value) })}
+            />
+          </label>
+        </div>
+        <div className="profile-summary">
+          <span>
+            {profile.brideName} & {profile.groomName}
+          </span>
+          <span>{daysUntil === null ? "婚期待确认" : `距离婚礼 ${Math.max(daysUntil, 0)} 天`}</span>
+          <span className={budgetGap < 0 ? "over-budget" : ""}>
+            {budgetGap < 0 ? `已超预算 ${currency(Math.abs(budgetGap))}` : `剩余预算 ${currency(budgetGap)}`}
+          </span>
+        </div>
+      </section>
+
       <section className="capability-grid" aria-label="喜缘能力">
         {capabilityCards.map((card) => {
           const Icon = card.icon;
@@ -553,6 +845,13 @@ export function WeddingPlanner() {
                   </select>
                   <button
                     type="button"
+                    className="subtle-action task-detail-toggle"
+                    onClick={() => setOpenTaskId(openTaskId === task.id ? null : task.id)}
+                  >
+                    详情
+                  </button>
+                  <button
+                    type="button"
                     className="delete-task"
                     onClick={() => deleteTask(task.id)}
                     aria-label={`删除${task.title}`}
@@ -561,6 +860,39 @@ export function WeddingPlanner() {
                     <span>删除</span>
                   </button>
                 </div>
+                {openTaskId === task.id && (
+                  <div className="task-detail">
+                    <label>
+                      负责人
+                      <input
+                        value={task.assignee}
+                        onChange={(event) => updateTask(task.id, { assignee: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      截止日期
+                      <input
+                        type="date"
+                        value={task.dueDate}
+                        onChange={(event) => updateTask(task.id, { dueDate: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      备注
+                      <textarea
+                        value={task.notes}
+                        onChange={(event) => updateTask(task.id, { notes: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      确认标准
+                      <textarea
+                        value={task.criteria}
+                        onChange={(event) => updateTask(task.id, { criteria: event.target.value })}
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -599,8 +931,9 @@ export function WeddingPlanner() {
             <h2>预算安心感</h2>
           </div>
           <strong className="big-number">{currency(totals.total)}</strong>
-          <p className="muted">
-            已支付 {currency(totals.paid)} · 当前执行 {totals.rate}%
+          <p className={`muted ${budgetGap < 0 ? "over-budget" : ""}`}>
+            已支付 {currency(totals.paid)} · 当前执行 {totals.rate}% ·
+            {budgetGap < 0 ? ` 超预算 ${currency(Math.abs(budgetGap))}` : ` 预算余量 ${currency(budgetGap)}`}
           </p>
           <div className="budget-bars">
             {budgetList.map((item) => (
@@ -659,14 +992,24 @@ export function WeddingPlanner() {
         <article className="panel timeline-panel" id="details">
           <div className="section-title">
             <CalendarDays size={19} aria-hidden="true" />
-            <h2>关键节点</h2>
+            <h2>智能备婚阶段</h2>
           </div>
-          {["定预算", "选场地", "定风格", "排流程"].map((item, index) => (
-            <div className="timeline-row" key={item}>
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <strong>{item}</strong>
-            </div>
-          ))}
+          <div className="phase-list">
+            {stagePlan.map((stage, index) => (
+              <div className={`phase-card ${statusClass(stage.status).replace("status ", "")}`} key={stage.title}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <div>
+                  <strong>{stage.title}</strong>
+                  <small>{stage.window}</small>
+                </div>
+                <em>{stage.status}</em>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="ghost-action" onClick={applyStageTasks}>
+            <ListChecks size={17} aria-hidden="true" />
+            生成阶段任务
+          </button>
         </article>
 
         <article className="panel wide-panel" id="collaboration">

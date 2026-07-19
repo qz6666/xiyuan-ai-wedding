@@ -48,7 +48,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -593,6 +594,9 @@ button {
 }
 
 .task-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: start;
   gap: 12px;
   min-height: 66px;
   padding: 12px;
@@ -674,6 +678,64 @@ button {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+.task-detail-toggle {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.task-detail {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid rgba(184, 36, 53, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 247, 235, 0.68);
+}
+
+.task-detail label,
+.profile-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.task-detail input,
+.task-detail textarea,
+.profile-grid input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(184, 36, 53, 0.26);
+  border-radius: 14px;
+  background: rgba(255, 248, 234, 0.76);
+  color: var(--ink);
+  outline: none;
+  font-weight: 850;
+  box-shadow: var(--red-gold-ring);
+}
+
+.task-detail input,
+.profile-grid input {
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.task-detail textarea {
+  min-height: 72px;
+  resize: vertical;
+  padding: 10px;
+  line-height: 1.5;
+}
+
+.task-detail label:nth-last-child(-n + 2) {
+  grid-column: 1 / -1;
 }
 
 .status {
@@ -862,6 +924,101 @@ meter::-webkit-meter-optimum-value {
   font-weight: 950;
 }
 
+.profile-panel {
+  margin: 16px 0;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.profile-grid label:nth-child(7) {
+  grid-column: span 2;
+}
+
+.profile-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.profile-summary span {
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid rgba(184, 36, 53, 0.32);
+  border-radius: 999px;
+  background: rgba(255, 248, 234, 0.7);
+  color: var(--red-dark);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.over-budget {
+  color: #b82435 !important;
+}
+
+.phase-list {
+  display: grid;
+  gap: 10px;
+}
+
+.phase-card {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 248, 234, 0.68);
+  box-shadow: var(--red-gold-ring);
+}
+
+.phase-card span {
+  color: var(--gold);
+  font-weight: 950;
+}
+
+.phase-card strong,
+.phase-card small {
+  display: block;
+}
+
+.phase-card small {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.phase-card em {
+  min-width: 58px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+  text-align: center;
+}
+
+.phase-card.done em {
+  background: #f8e4bd;
+  color: #8f1725;
+}
+
+.phase-card.active em {
+  background: #f1cf84;
+  color: #5b171f;
+}
+
+.phase-card.pending em {
+  background: #f3d0ca;
+  color: #9a1b2a;
+}
+
 .feature-strip {
   flex-wrap: wrap;
   gap: 10px;
@@ -972,8 +1129,13 @@ meter::-webkit-meter-optimum-value {
 
   .hero,
   .planner-grid,
-  .capability-grid {
+  .capability-grid,
+  .profile-grid {
     grid-template-columns: 1fr;
+  }
+
+  .profile-grid label:nth-child(7) {
+    grid-column: auto;
   }
 
   .hero {
@@ -1033,6 +1195,14 @@ meter::-webkit-meter-optimum-value {
     flex-direction: column;
     align-items: flex-end;
     margin-left: auto;
+  }
+
+  .task-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .task-detail label:nth-last-child(-n + 2) {
+    grid-column: auto;
   }
 }
 
@@ -1230,6 +1400,28 @@ meter::-webkit-meter-optimum-value {
     justify-content: space-between;
     align-items: center;
     margin-left: 0;
+  }
+
+  .task-detail-toggle {
+    flex: 1;
+  }
+
+  .profile-summary {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .profile-summary span {
+    text-align: center;
+  }
+
+  .phase-card {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .phase-card em {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .status,
