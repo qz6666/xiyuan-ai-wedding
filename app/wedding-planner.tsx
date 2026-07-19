@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  Building2,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
@@ -19,6 +20,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  UserPlus,
   UsersRound,
   Video,
 } from "lucide-react";
@@ -28,6 +30,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type TaskStatus = "已完成" | "进行中" | "待确认";
 type Mode = "文本" | "图片" | "视频";
 type BudgetStatus = "待付款" | "已付定金" | "已结清";
+type GuestRsvp = "待确认" | "会到场" | "不参加";
+type VendorStatus = "待沟通" | "已预约" | "已签约";
 
 type Task = {
   id: number;
@@ -46,6 +50,39 @@ type BudgetItem = {
   total: number;
   paid: number;
   status: BudgetStatus;
+};
+
+type Guest = {
+  id: number;
+  name: string;
+  relation: string;
+  count: number;
+  rsvp: GuestRsvp;
+  companion: boolean;
+  table: string;
+  notes: string;
+};
+
+type Vendor = {
+  id: number;
+  category: string;
+  name: string;
+  contact: string;
+  phone: string;
+  quote: number;
+  deposit: number;
+  status: VendorStatus;
+  notes: string;
+};
+
+type WeddingEvent = {
+  id: number;
+  time: string;
+  title: string;
+  owner: string;
+  location: string;
+  status: TaskStatus;
+  notes: string;
 };
 
 type CollaborationItem = {
@@ -75,6 +112,9 @@ type SavedWorkspace = {
   profile: CoupleProfile;
   taskList: Task[];
   budgetList: BudgetItem[];
+  guestList: Guest[];
+  vendorList: Vendor[];
+  weddingTimeline: WeddingEvent[];
   collaborationList: CollaborationItem[];
   draft: string[];
   mode: Mode;
@@ -86,6 +126,8 @@ const STORAGE_KEY = "xiyuan-wedding-workspace-v2";
 const LEGACY_STORAGE_KEY = "xiyuan-wedding-workspace-v1";
 const taskStatuses: TaskStatus[] = ["待确认", "进行中", "已完成"];
 const budgetStatuses: BudgetStatus[] = ["待付款", "已付定金", "已结清"];
+const guestRsvps: GuestRsvp[] = ["待确认", "会到场", "不参加"];
+const vendorStatuses: VendorStatus[] = ["待沟通", "已预约", "已签约"];
 
 const defaultProfile: CoupleProfile = {
   brideName: "新娘",
@@ -144,6 +186,105 @@ const budgetItems: BudgetItem[] = [
   { id: 1, name: "场地餐饮", total: 138000, paid: 60000, status: "已付定金" },
   { id: 2, name: "婚礼策划", total: 42000, paid: 18000, status: "已付定金" },
   { id: 3, name: "摄影摄像", total: 26000, paid: 8000, status: "已付定金" },
+];
+
+const guestItems: Guest[] = [
+  {
+    id: 1,
+    name: "王阿姨",
+    relation: "女方亲友",
+    count: 2,
+    rsvp: "会到场",
+    companion: true,
+    table: "主桌旁",
+    notes: "偏清淡，方便和女方亲友同桌。",
+  },
+  {
+    id: 2,
+    name: "李同学",
+    relation: "新郎同学",
+    count: 1,
+    rsvp: "待确认",
+    companion: false,
+    table: "同学桌",
+    notes: "等航班确认后回复。",
+  },
+  {
+    id: 3,
+    name: "陈总",
+    relation: "同事",
+    count: 1,
+    rsvp: "会到场",
+    companion: false,
+    table: "同事桌",
+    notes: "需要安排靠近通道。",
+  },
+];
+
+const vendorItems: Vendor[] = [
+  {
+    id: 1,
+    category: "场地",
+    name: "西子宴会厅",
+    contact: "周经理",
+    phone: "13800000001",
+    quote: 138000,
+    deposit: 60000,
+    status: "已签约",
+    notes: "确认红金主舞台尺寸和入场动线。",
+  },
+  {
+    id: 2,
+    category: "摄影",
+    name: "光影纪实团队",
+    contact: "阿森",
+    phone: "13800000002",
+    quote: 18000,
+    deposit: 5000,
+    status: "已预约",
+    notes: "需要补确认外景拍摄时间。",
+  },
+  {
+    id: 3,
+    category: "主持",
+    name: "温礼主持工作室",
+    contact: "林老师",
+    phone: "13800000003",
+    quote: 9800,
+    deposit: 0,
+    status: "待沟通",
+    notes: "看一版中式仪式案例。",
+  },
+];
+
+const weddingTimelineItems: WeddingEvent[] = [
+  {
+    id: 1,
+    time: "08:00",
+    title: "新娘化妆造型",
+    owner: "化妆师",
+    location: "酒店套房",
+    status: "进行中",
+    notes: "伴娘 8:30 到场，摄影 9:00 进房间。",
+  },
+  {
+    id: 2,
+    time: "11:18",
+    title: "接亲与敬茶",
+    owner: "伴郎团",
+    location: "新娘家",
+    status: "待确认",
+    notes: "提前准备红包、茶具、拍摄道具。",
+  },
+  {
+    id: 3,
+    time: "17:28",
+    title: "仪式正式开始",
+    owner: "主持人",
+    location: "宴会厅",
+    status: "待确认",
+    notes: "确认音乐、灯光、戒指和誓词稿。",
+  },
 ];
 
 const collaborationItems: CollaborationItem[] = [
@@ -223,6 +364,45 @@ function budgetStatusClass(status: BudgetStatus) {
   if (status === "已结清") return "budget-status settled";
   if (status === "已付定金") return "budget-status deposit";
   return "budget-status unpaid";
+}
+
+function normalizeGuest(guest: Partial<Guest> & { id: number }) {
+  return {
+    id: guest.id,
+    name: guest.name || "新宾客",
+    relation: guest.relation || "亲友",
+    count: Math.max(1, Math.round(Number(guest.count) || 1)),
+    rsvp: guest.rsvp && guestRsvps.includes(guest.rsvp) ? guest.rsvp : "待确认",
+    companion: Boolean(guest.companion),
+    table: guest.table || "待排桌",
+    notes: guest.notes || "",
+  };
+}
+
+function normalizeVendor(vendor: Partial<Vendor> & { id: number }) {
+  return {
+    id: vendor.id,
+    category: vendor.category || "供应商",
+    name: vendor.name || "新供应商",
+    contact: vendor.contact || "",
+    phone: vendor.phone || "",
+    quote: parseMoney(String(vendor.quote ?? 0)),
+    deposit: parseMoney(String(vendor.deposit ?? 0)),
+    status: vendor.status && vendorStatuses.includes(vendor.status) ? vendor.status : "待沟通",
+    notes: vendor.notes || "",
+  };
+}
+
+function normalizeWeddingEvent(event: Partial<WeddingEvent> & { id: number }) {
+  return {
+    id: event.id,
+    time: event.time || "待定",
+    title: event.title || "新流程",
+    owner: event.owner || "待分配",
+    location: event.location || "待确认",
+    status: event.status || "待确认",
+    notes: event.notes || "",
+  };
 }
 
 function normalizeTask(task: Partial<Task> & { id: number; title?: string }) {
@@ -342,6 +522,9 @@ export function WeddingPlanner() {
   const [draft, setDraft] = useState(aiSuggestions);
   const [taskList, setTaskList] = useState(tasks);
   const [budgetList, setBudgetList] = useState(budgetItems);
+  const [guestList, setGuestList] = useState(guestItems);
+  const [vendorList, setVendorList] = useState(vendorItems);
+  const [weddingTimeline, setWeddingTimeline] = useState(weddingTimelineItems);
   const [collaborationList, setCollaborationList] = useState(collaborationItems);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [notice, setNotice] = useState("AI 服务已就绪，输入需求即可生成今日计划。");
@@ -368,6 +551,15 @@ export function WeddingPlanner() {
         }
         if (Array.isArray(workspace.budgetList)) {
           setBudgetList(workspace.budgetList.map(normalizeBudget));
+        }
+        if (Array.isArray(workspace.guestList)) {
+          setGuestList(workspace.guestList.map(normalizeGuest));
+        }
+        if (Array.isArray(workspace.vendorList)) {
+          setVendorList(workspace.vendorList.map(normalizeVendor));
+        }
+        if (Array.isArray(workspace.weddingTimeline)) {
+          setWeddingTimeline(workspace.weddingTimeline.map(normalizeWeddingEvent));
         }
         if (Array.isArray(workspace.collaborationList)) {
           setCollaborationList(workspace.collaborationList);
@@ -396,6 +588,9 @@ export function WeddingPlanner() {
       profile,
       taskList,
       budgetList,
+      guestList,
+      vendorList,
+      weddingTimeline,
       collaborationList,
       draft,
       mode,
@@ -408,10 +603,13 @@ export function WeddingPlanner() {
     budgetList,
     collaborationList,
     draft,
+    guestList,
     mode,
     profile,
     prompt,
     taskList,
+    vendorList,
+    weddingTimeline,
     workspaceLoaded,
   ]);
 
@@ -433,6 +631,13 @@ export function WeddingPlanner() {
   const completedCollaboration = collaborationList.filter((item) => item.done).length;
   const budgetGap = profile.budgetCap - totals.total;
   const settledBudgetCount = budgetList.filter((item) => item.status === "已结清").length;
+  const confirmedGuestCount = guestList
+    .filter((guest) => guest.rsvp === "会到场")
+    .reduce((sum, guest) => sum + guest.count, 0);
+  const pendingGuestCount = guestList.filter((guest) => guest.rsvp === "待确认").length;
+  const signedVendorCount = vendorList.filter((vendor) => vendor.status === "已签约").length;
+  const vendorQuoteTotal = vendorList.reduce((sum, vendor) => sum + vendor.quote, 0);
+  const confirmedTimelineCount = weddingTimeline.filter((event) => event.status === "已完成").length;
 
   function scrollToSection(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -595,6 +800,97 @@ export function WeddingPlanner() {
     setNotice(budget ? `已删除预算项：${budget.name}` : "已删除预算项。");
   }
 
+  function addGuest() {
+    setGuestList((current) => [
+      ...current,
+      {
+        id: nextId(current),
+        name: "新宾客",
+        relation: "亲友",
+        count: 1,
+        rsvp: "待确认",
+        companion: false,
+        table: "待排桌",
+        notes: "",
+      },
+    ]);
+    setNotice("已新增宾客，可以填写关系、人数和座位偏好。");
+  }
+
+  function updateGuest(guestId: number, patch: Partial<Guest>) {
+    setGuestList((current) =>
+      current.map((guest) => (guest.id === guestId ? normalizeGuest({ ...guest, ...patch }) : guest)),
+    );
+  }
+
+  function deleteGuest(guestId: number) {
+    const guest = guestList.find((item) => item.id === guestId);
+    setGuestList((current) => current.filter((item) => item.id !== guestId));
+    setNotice(guest ? `已删除宾客：${guest.name}` : "已删除宾客。");
+  }
+
+  function addVendor() {
+    setVendorList((current) => [
+      ...current,
+      {
+        id: nextId(current),
+        category: "供应商",
+        name: "新供应商",
+        contact: "",
+        phone: "",
+        quote: 0,
+        deposit: 0,
+        status: "待沟通",
+        notes: "",
+      },
+    ]);
+    setNotice("已新增供应商，可以填写报价、联系人和确认状态。");
+  }
+
+  function updateVendor(vendorId: number, patch: Partial<Vendor>) {
+    setVendorList((current) =>
+      current.map((vendor) =>
+        vendor.id === vendorId ? normalizeVendor({ ...vendor, ...patch }) : vendor,
+      ),
+    );
+  }
+
+  function deleteVendor(vendorId: number) {
+    const vendor = vendorList.find((item) => item.id === vendorId);
+    setVendorList((current) => current.filter((item) => item.id !== vendorId));
+    setNotice(vendor ? `已删除供应商：${vendor.name}` : "已删除供应商。");
+  }
+
+  function addWeddingEvent() {
+    setWeddingTimeline((current) => [
+      ...current,
+      {
+        id: nextId(current),
+        time: "待定",
+        title: "新流程",
+        owner: "待分配",
+        location: "待确认",
+        status: "待确认",
+        notes: "",
+      },
+    ]);
+    setNotice("已新增婚礼当天流程，可以填写时间、地点和负责人。");
+  }
+
+  function updateWeddingEvent(eventId: number, patch: Partial<WeddingEvent>) {
+    setWeddingTimeline((current) =>
+      current.map((event) =>
+        event.id === eventId ? normalizeWeddingEvent({ ...event, ...patch }) : event,
+      ),
+    );
+  }
+
+  function deleteWeddingEvent(eventId: number) {
+    const event = weddingTimeline.find((item) => item.id === eventId);
+    setWeddingTimeline((current) => current.filter((item) => item.id !== eventId));
+    setNotice(event ? `已删除流程：${event.title}` : "已删除流程。");
+  }
+
   function toggleCollaboration(itemId: number) {
     setCollaborationList((current) =>
       current.map((item) => (item.id === itemId ? { ...item, done: !item.done } : item)),
@@ -605,6 +901,9 @@ export function WeddingPlanner() {
     setProfile(defaultProfile);
     setTaskList(tasks);
     setBudgetList(budgetItems);
+    setGuestList(guestItems);
+    setVendorList(vendorItems);
+    setWeddingTimeline(weddingTimelineItems);
     setCollaborationList(collaborationItems);
     setDraft(aiSuggestions);
     setMode("文本");
@@ -642,6 +941,24 @@ export function WeddingPlanner() {
       ...budgetList.map(
         (item, index) =>
           `${index + 1}. ${item.name}｜总预算：${currency(item.total)}｜已支付：${currency(item.paid)}｜状态：${item.status}`,
+      ),
+      "",
+      `## 宾客名单`,
+      ...guestList.map(
+        (guest, index) =>
+          `${index + 1}. ${guest.name}｜${guest.relation}｜${guest.count} 人｜${guest.rsvp}｜${guest.companion ? "携伴" : "不携伴"}｜桌位：${guest.table}｜备注：${guest.notes || "无"}`,
+      ),
+      "",
+      `## 供应商管理`,
+      ...vendorList.map(
+        (vendor, index) =>
+          `${index + 1}. ${vendor.category}｜${vendor.name}｜联系人：${vendor.contact || "待定"}｜电话：${vendor.phone || "待定"}｜报价：${currency(vendor.quote)}｜定金：${currency(vendor.deposit)}｜状态：${vendor.status}｜备注：${vendor.notes || "无"}`,
+      ),
+      "",
+      `## 婚礼当天流程`,
+      ...weddingTimeline.map(
+        (event, index) =>
+          `${index + 1}. ${event.time}｜${event.title}｜负责人：${event.owner}｜地点：${event.location}｜状态：${event.status}｜备注：${event.notes || "无"}`,
       ),
       "",
       `## 协作清单`,
@@ -687,6 +1004,7 @@ export function WeddingPlanner() {
             <a href="#profile">新人资料</a>
             <a href="#plan">备婚计划</a>
             <a href="#details">阶段计划</a>
+            <a href="#business">业务模块</a>
             <a href="#collaboration">协助清单</a>
           </div>
           <button type="button" onClick={startExperience}>
@@ -1128,6 +1446,249 @@ export function WeddingPlanner() {
             <strong>生成备婚短视频脚本</strong>
             <small>切换到视频模式后输入主题，AI 会生成脚本并自动加入今日小事。</small>
           </div>
+        </article>
+      </section>
+
+      <section className="business-grid" id="business">
+        <article className="panel business-panel" id="guests">
+          <div className="section-title">
+            <UserPlus size={19} aria-hidden="true" />
+            <h2>宾客名单管理</h2>
+          </div>
+          <p className="module-summary">
+            已确认 {confirmedGuestCount} 人到场，仍有 {pendingGuestCount} 位宾客待回复。
+          </p>
+          <div className="business-list">
+            {guestList.map((guest) => (
+              <div className="business-row guest-row" key={guest.id}>
+                <input
+                  value={guest.name}
+                  onChange={(event) => updateGuest(guest.id, { name: event.target.value })}
+                  aria-label="宾客姓名"
+                />
+                <input
+                  value={guest.relation}
+                  onChange={(event) => updateGuest(guest.id, { relation: event.target.value })}
+                  aria-label="宾客关系"
+                />
+                <label>
+                  人数
+                  <input
+                    type="number"
+                    min={1}
+                    value={guest.count}
+                    onChange={(event) => updateGuest(guest.id, { count: Number(event.target.value) })}
+                    aria-label={`${guest.name}人数`}
+                  />
+                </label>
+                <label>
+                  回执
+                  <select
+                    value={guest.rsvp}
+                    onChange={(event) => updateGuest(guest.id, { rsvp: event.target.value as GuestRsvp })}
+                    aria-label={`${guest.name}回执`}
+                  >
+                    {guestRsvps.map((rsvp) => (
+                      <option key={rsvp}>{rsvp}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={guest.companion}
+                    onChange={(event) => updateGuest(guest.id, { companion: event.target.checked })}
+                  />
+                  携伴
+                </label>
+                <input
+                  value={guest.table}
+                  onChange={(event) => updateGuest(guest.id, { table: event.target.value })}
+                  aria-label={`${guest.name}桌位偏好`}
+                />
+                <textarea
+                  value={guest.notes}
+                  onChange={(event) => updateGuest(guest.id, { notes: event.target.value })}
+                  aria-label={`${guest.name}备注`}
+                />
+                <button
+                  type="button"
+                  className="delete-task"
+                  onClick={() => deleteGuest(guest.id)}
+                  aria-label={`删除${guest.name}`}
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  <span>删除</span>
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="ghost-action" onClick={addGuest}>
+            <Plus size={17} aria-hidden="true" />
+            新增宾客
+          </button>
+        </article>
+
+        <article className="panel business-panel" id="vendors">
+          <div className="section-title">
+            <Building2 size={19} aria-hidden="true" />
+            <h2>供应商管理</h2>
+          </div>
+          <p className="module-summary">
+            已签约 {signedVendorCount}/{vendorList.length} 家，供应商报价合计 {currency(vendorQuoteTotal)}。
+          </p>
+          <div className="business-list">
+            {vendorList.map((vendor) => (
+              <div className="business-row vendor-row" key={vendor.id}>
+                <input
+                  value={vendor.category}
+                  onChange={(event) => updateVendor(vendor.id, { category: event.target.value })}
+                  aria-label="供应商类型"
+                />
+                <input
+                  value={vendor.name}
+                  onChange={(event) => updateVendor(vendor.id, { name: event.target.value })}
+                  aria-label="供应商名称"
+                />
+                <input
+                  value={vendor.contact}
+                  onChange={(event) => updateVendor(vendor.id, { contact: event.target.value })}
+                  aria-label={`${vendor.name}联系人`}
+                />
+                <input
+                  value={vendor.phone}
+                  onChange={(event) => updateVendor(vendor.id, { phone: event.target.value })}
+                  aria-label={`${vendor.name}电话`}
+                />
+                <label>
+                  报价
+                  <input
+                    type="number"
+                    min={0}
+                    value={vendor.quote}
+                    onChange={(event) => updateVendor(vendor.id, { quote: parseMoney(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  定金
+                  <input
+                    type="number"
+                    min={0}
+                    value={vendor.deposit}
+                    onChange={(event) => updateVendor(vendor.id, { deposit: parseMoney(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  状态
+                  <select
+                    value={vendor.status}
+                    onChange={(event) =>
+                      updateVendor(vendor.id, { status: event.target.value as VendorStatus })
+                    }
+                  >
+                    {vendorStatuses.map((status) => (
+                      <option key={status}>{status}</option>
+                    ))}
+                  </select>
+                </label>
+                <textarea
+                  value={vendor.notes}
+                  onChange={(event) => updateVendor(vendor.id, { notes: event.target.value })}
+                  aria-label={`${vendor.name}备注`}
+                />
+                <button
+                  type="button"
+                  className="delete-task"
+                  onClick={() => deleteVendor(vendor.id)}
+                  aria-label={`删除${vendor.name}`}
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  <span>删除</span>
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="ghost-action" onClick={addVendor}>
+            <Plus size={17} aria-hidden="true" />
+            新增供应商
+          </button>
+        </article>
+
+        <article className="panel business-panel timeline-business">
+          <div className="section-title">
+            <CalendarDays size={19} aria-hidden="true" />
+            <h2>婚礼当天流程表</h2>
+          </div>
+          <p className="module-summary">
+            已确认 {confirmedTimelineCount}/{weddingTimeline.length} 个当天节点，适合发给伴郎伴娘和供应商。
+          </p>
+          <div className="business-list">
+            {weddingTimeline.map((event) => (
+              <div className="business-row event-row" key={event.id}>
+                <input
+                  value={event.time}
+                  onChange={(inputEvent) =>
+                    updateWeddingEvent(event.id, { time: inputEvent.target.value })
+                  }
+                  aria-label={`${event.title}时间`}
+                />
+                <input
+                  value={event.title}
+                  onChange={(inputEvent) =>
+                    updateWeddingEvent(event.id, { title: inputEvent.target.value })
+                  }
+                  aria-label="流程标题"
+                />
+                <input
+                  value={event.owner}
+                  onChange={(inputEvent) =>
+                    updateWeddingEvent(event.id, { owner: inputEvent.target.value })
+                  }
+                  aria-label={`${event.title}负责人`}
+                />
+                <input
+                  value={event.location}
+                  onChange={(inputEvent) =>
+                    updateWeddingEvent(event.id, { location: inputEvent.target.value })
+                  }
+                  aria-label={`${event.title}地点`}
+                />
+                <label>
+                  状态
+                  <select
+                    value={event.status}
+                    onChange={(inputEvent) =>
+                      updateWeddingEvent(event.id, { status: inputEvent.target.value as TaskStatus })
+                    }
+                  >
+                    {taskStatuses.map((status) => (
+                      <option key={status}>{status}</option>
+                    ))}
+                  </select>
+                </label>
+                <textarea
+                  value={event.notes}
+                  onChange={(inputEvent) =>
+                    updateWeddingEvent(event.id, { notes: inputEvent.target.value })
+                  }
+                  aria-label={`${event.title}备注`}
+                />
+                <button
+                  type="button"
+                  className="delete-task"
+                  onClick={() => deleteWeddingEvent(event.id)}
+                  aria-label={`删除${event.title}`}
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  <span>删除</span>
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="ghost-action" onClick={addWeddingEvent}>
+            <Plus size={17} aria-hidden="true" />
+            新增流程
+          </button>
         </article>
       </section>
 
