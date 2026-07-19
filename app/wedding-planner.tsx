@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
+  Download,
   Heart,
   Image as ImageIcon,
   ListChecks,
@@ -26,6 +27,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type TaskStatus = "已完成" | "进行中" | "待确认";
 type Mode = "文本" | "图片" | "视频";
+type BudgetStatus = "待付款" | "已付定金" | "已结清";
 
 type Task = {
   id: number;
@@ -43,6 +45,7 @@ type BudgetItem = {
   name: string;
   total: number;
   paid: number;
+  status: BudgetStatus;
 };
 
 type CollaborationItem = {
@@ -82,6 +85,7 @@ type SavedWorkspace = {
 const STORAGE_KEY = "xiyuan-wedding-workspace-v2";
 const LEGACY_STORAGE_KEY = "xiyuan-wedding-workspace-v1";
 const taskStatuses: TaskStatus[] = ["待确认", "进行中", "已完成"];
+const budgetStatuses: BudgetStatus[] = ["待付款", "已付定金", "已结清"];
 
 const defaultProfile: CoupleProfile = {
   brideName: "新娘",
@@ -137,9 +141,9 @@ const tasks: Task[] = [
 ];
 
 const budgetItems: BudgetItem[] = [
-  { id: 1, name: "场地餐饮", total: 138000, paid: 60000 },
-  { id: 2, name: "婚礼策划", total: 42000, paid: 18000 },
-  { id: 3, name: "摄影摄像", total: 26000, paid: 8000 },
+  { id: 1, name: "场地餐饮", total: 138000, paid: 60000, status: "已付定金" },
+  { id: 2, name: "婚礼策划", total: 42000, paid: 18000, status: "已付定金" },
+  { id: 3, name: "摄影摄像", total: 26000, paid: 8000, status: "已付定金" },
 ];
 
 const collaborationItems: CollaborationItem[] = [
@@ -205,11 +209,20 @@ function parseMoney(value: string) {
 
 function normalizeBudget(item: BudgetItem) {
   const total = Math.max(0, item.total);
+  const paid = Math.min(Math.max(0, item.paid), total);
+  const fallbackStatus = paid <= 0 ? "待付款" : paid >= total && total > 0 ? "已结清" : "已付定金";
   return {
     ...item,
     total,
-    paid: Math.min(Math.max(0, item.paid), total),
+    paid,
+    status: budgetStatuses.includes(item.status) ? item.status : fallbackStatus,
   };
+}
+
+function budgetStatusClass(status: BudgetStatus) {
+  if (status === "已结清") return "budget-status settled";
+  if (status === "已付定金") return "budget-status deposit";
+  return "budget-status unpaid";
 }
 
 function normalizeTask(task: Partial<Task> & { id: number; title?: string }) {
@@ -419,6 +432,7 @@ export function WeddingPlanner() {
   const taskProgress = taskList.length > 0 ? Math.round((completedTasks / taskList.length) * 100) : 0;
   const completedCollaboration = collaborationList.filter((item) => item.done).length;
   const budgetGap = profile.budgetCap - totals.total;
+  const settledBudgetCount = budgetList.filter((item) => item.status === "已结清").length;
 
   function scrollToSection(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -563,6 +577,7 @@ export function WeddingPlanner() {
         name: "新增预算项",
         total: 10000,
         paid: 0,
+        status: "待付款",
       },
     ]);
     setNotice("已新增预算项，可以直接修改名称和金额。");
@@ -599,6 +614,54 @@ export function WeddingPlanner() {
     window.localStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_STORAGE_KEY);
     setNotice("已恢复第二版默认备婚工作台。");
+  }
+
+  function exportWorkspace() {
+    const exportedAt = new Date().toLocaleString("zh-CN");
+    const content = [
+      `# 喜缘备婚清单`,
+      "",
+      `导出时间：${exportedAt}`,
+      "",
+      `## 新人资料`,
+      `- 新人：${profile.brideName} & ${profile.groomName}`,
+      `- 婚期：${profile.weddingDate || "待确认"}`,
+      `- 城市：${profile.city}`,
+      `- 宾客人数：${profile.guestCount}`,
+      `- 婚礼风格：${profile.style}`,
+      `- 预算上限：${currency(profile.budgetCap)}`,
+      `- ${budgetGap < 0 ? `已超预算：${currency(Math.abs(budgetGap))}` : `预算余量：${currency(budgetGap)}`}`,
+      "",
+      `## 今日小事`,
+      ...taskList.map(
+        (task, index) =>
+          `${index + 1}. [${task.status}] ${task.title}｜${task.stage}｜负责人：${task.assignee || "待定"}｜截止：${task.dueDate || "待定"}\n   - 备注：${task.notes || "无"}\n   - 确认标准：${task.criteria || "无"}`,
+      ),
+      "",
+      `## 预算表`,
+      ...budgetList.map(
+        (item, index) =>
+          `${index + 1}. ${item.name}｜总预算：${currency(item.total)}｜已支付：${currency(item.paid)}｜状态：${item.status}`,
+      ),
+      "",
+      `## 协作清单`,
+      ...collaborationList.map((item) => `- ${item.done ? "[x]" : "[ ]"} ${item.title}`),
+      "",
+      `## AI 陪伴建议`,
+      ...draft.map((item, index) => `${index + 1}. ${item}`),
+      "",
+    ].join("\n");
+
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `喜缘备婚清单-${profile.weddingDate || "未定婚期"}.md`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setNotice("已导出备婚清单，可发送给家人或策划师。");
   }
 
   return (
@@ -784,6 +847,12 @@ export function WeddingPlanner() {
             {budgetGap < 0 ? `已超预算 ${currency(Math.abs(budgetGap))}` : `剩余预算 ${currency(budgetGap)}`}
           </span>
         </div>
+        <div className="panel-actions export-actions">
+          <button type="button" className="ghost-action" onClick={exportWorkspace}>
+            <Download size={17} aria-hidden="true" />
+            导出备婚清单
+          </button>
+        </div>
       </section>
 
       <section className="capability-grid" aria-label="喜缘能力">
@@ -935,9 +1004,12 @@ export function WeddingPlanner() {
             已支付 {currency(totals.paid)} · 当前执行 {totals.rate}% ·
             {budgetGap < 0 ? ` 超预算 ${currency(Math.abs(budgetGap))}` : ` 预算余量 ${currency(budgetGap)}`}
           </p>
+          <p className="budget-summary">
+            已结清 {settledBudgetCount}/{budgetList.length} 项，预算超过上限时会自动标红提醒。
+          </p>
           <div className="budget-bars">
             {budgetList.map((item) => (
-              <div className="budget-row" key={item.id}>
+              <div className={`budget-row ${item.status === "已结清" ? "settled" : ""}`} key={item.id}>
                 <div className="budget-editor">
                   <input
                     value={item.name}
@@ -968,6 +1040,21 @@ export function WeddingPlanner() {
                       }
                       aria-label={`${item.name}已支付`}
                     />
+                  </label>
+                  <label>
+                    状态
+                    <select
+                      className={budgetStatusClass(item.status)}
+                      value={item.status}
+                      onChange={(event) =>
+                        updateBudgetItem(item.id, { status: event.target.value as BudgetStatus })
+                      }
+                      aria-label={`${item.name}付款状态`}
+                    >
+                      {budgetStatuses.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
                   </label>
                   <button
                     type="button"

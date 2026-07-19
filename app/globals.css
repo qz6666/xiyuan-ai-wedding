@@ -642,7 +642,8 @@ button {
 
 .task-title-input,
 .task-stage-input,
-.budget-editor input {
+.budget-editor input,
+.budget-editor select {
   width: 100%;
   min-width: 0;
   border: 1px solid transparent;
@@ -869,7 +870,7 @@ button {
 
 .budget-editor {
   display: grid;
-  grid-template-columns: minmax(120px, 1.2fr) repeat(2, minmax(92px, 0.8fr)) auto;
+  grid-template-columns: minmax(120px, 1.2fr) repeat(3, minmax(92px, 0.8fr)) auto;
   gap: 8px;
   align-items: end;
 }
@@ -882,13 +883,51 @@ button {
   font-weight: 850;
 }
 
-.budget-editor input {
+.budget-editor input,
+.budget-editor select {
   min-height: 34px;
   padding: 0 9px;
   border-color: rgba(184, 36, 53, 0.26);
   background: rgba(255, 247, 235, 0.72);
   font-size: 13px;
   font-weight: 850;
+}
+
+.budget-editor select {
+  border-radius: 999px;
+  text-align: center;
+}
+
+.budget-summary {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.5;
+}
+
+.budget-row.settled {
+  border-color: rgba(201, 154, 72, 0.56);
+  background: rgba(255, 241, 211, 0.72);
+}
+
+.budget-status {
+  border: 0 !important;
+}
+
+.budget-status.settled {
+  background: #f8e4bd;
+  color: #8f1725;
+}
+
+.budget-status.deposit {
+  background: #f1cf84;
+  color: #5b171f;
+}
+
+.budget-status.unpaid {
+  background: #f3d0ca;
+  color: #9a1b2a;
 }
 
 .budget-bars span {
@@ -944,6 +983,10 @@ meter::-webkit-meter-optimum-value {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+}
+
+.export-actions {
+  margin-top: 0;
 }
 
 .profile-summary span {
