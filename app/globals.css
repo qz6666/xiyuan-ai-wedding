@@ -38,6 +38,7 @@ html {
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
   background:
     linear-gradient(90deg, rgba(255, 247, 235, 0.98) 0%, rgba(255, 235, 218, 0.96) 45%, rgba(255, 219, 204, 0.94) 45%, rgba(244, 199, 170, 0.86) 100%),
     var(--cream);
@@ -902,5 +903,227 @@ meter::-webkit-meter-optimum-value {
     flex-direction: column;
     align-items: flex-end;
     margin-left: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    background:
+      linear-gradient(180deg, rgba(255, 247, 235, 0.98) 0%, rgba(255, 235, 218, 0.96) 48%, rgba(244, 199, 170, 0.84) 100%),
+      var(--cream);
+  }
+
+  .xiyuan-page {
+    padding: 10px 10px 28px;
+  }
+
+  .top-nav {
+    gap: 12px;
+    padding: 12px;
+    border-radius: 22px;
+  }
+
+  .brand {
+    gap: 10px;
+    min-height: 46px;
+  }
+
+  .brand::after {
+    min-width: 36px;
+    margin-left: 8px;
+  }
+
+  .brand-mark {
+    width: 44px;
+    height: 44px;
+  }
+
+  .brand strong {
+    font-size: 20px;
+  }
+
+  .brand small {
+    font-size: 12px;
+  }
+
+  .nav-links {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .nav-actions a,
+  .nav-actions button {
+    width: 100%;
+    justify-content: center;
+    min-height: 40px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+
+  .hero {
+    padding: 10px;
+    border-radius: 24px;
+  }
+
+  .hero-copy {
+    padding: 22px 14px;
+    border-radius: 20px;
+  }
+
+  .hero-kicker {
+    font-size: 19px;
+  }
+
+  .hero h1 {
+    width: 100%;
+    font-size: clamp(34px, 10.8vw, 42px);
+    line-height: 1.08;
+  }
+
+  .hero h1 span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .hero-subtitle {
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .mode-pills {
+    width: 100%;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 22px;
+  }
+
+  .mode-pills button {
+    flex: 1 1 88px;
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 10px;
+  }
+
+  .notice-bar {
+    width: 100%;
+    border-radius: 18px;
+    font-size: 13px;
+    text-align: left;
+  }
+
+  .prompt-row,
+  .prompt-box {
+    width: 100%;
+  }
+
+  .prompt-box {
+    grid-template-columns: minmax(0, 1fr) 46px;
+  }
+
+  .prompt-box input {
+    padding-left: 16px;
+    font-size: 14px;
+  }
+
+  .config-button {
+    min-height: 42px;
+    font-size: 16px;
+  }
+
+  .ai-console {
+    min-height: 360px;
+    padding: 30px 18px;
+  }
+
+  .heart-badge {
+    width: 58px;
+    height: 58px;
+  }
+
+  .ai-console h2 {
+    max-width: 270px;
+    font-size: 29px;
+  }
+
+  .ai-console p {
+    font-size: 14px;
+  }
+
+  .console-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ai-console button,
+  .ghost-action,
+  .budget-action {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .capability-card,
+  .panel {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .capability-grid,
+  .planner-grid {
+    gap: 12px;
+  }
+
+  .capability-card h2,
+  .section-title h2 {
+    font-size: 18px;
+  }
+
+  .planner-grid {
+    padding: 10px;
+    border-radius: 24px;
+  }
+
+  .task-row {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .task-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .task-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    margin-left: 0;
+  }
+
+  .status,
+  .delete-task {
+    min-height: 32px;
+  }
+
+  .big-number {
+    font-size: 30px;
+  }
+
+  .video-panel,
+  .footer-note {
+    align-items: flex-start;
+  }
+
+  .footer-note {
+    padding: 0 8px;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  .feature-strip span {
+    flex: 1 1 calc(50% - 10px);
+    text-align: center;
   }
 }
