@@ -8,12 +8,15 @@ import {
   ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
+  Copy,
   Download,
+  FileSpreadsheet,
   Heart,
   Image as ImageIcon,
   ListChecks,
   Play,
   Plus,
+  Printer,
   RotateCcw,
   Send,
   Settings,
@@ -32,6 +35,8 @@ type Mode = "文本" | "图片" | "视频";
 type BudgetStatus = "待付款" | "已付定金" | "已结清";
 type GuestRsvp = "待确认" | "会到场" | "不参加";
 type VendorStatus = "待沟通" | "已预约" | "已签约";
+type CopyKind = "誓词" | "请柬文案" | "父母致辞" | "短视频脚本" | "朋友圈文案";
+type CopyTone = "温柔正式" | "喜庆热闹" | "高级简洁";
 
 type Task = {
   id: number;
@@ -85,6 +90,15 @@ type WeddingEvent = {
   notes: string;
 };
 
+type CopywritingDoc = {
+  id: number;
+  kind: CopyKind;
+  tone: CopyTone;
+  title: string;
+  content: string;
+  createdAt: string;
+};
+
 type CollaborationItem = {
   id: number;
   title: string;
@@ -115,6 +129,7 @@ type SavedWorkspace = {
   guestList: Guest[];
   vendorList: Vendor[];
   weddingTimeline: WeddingEvent[];
+  copywritingList: CopywritingDoc[];
   collaborationList: CollaborationItem[];
   draft: string[];
   mode: Mode;
@@ -128,6 +143,8 @@ const taskStatuses: TaskStatus[] = ["待确认", "进行中", "已完成"];
 const budgetStatuses: BudgetStatus[] = ["待付款", "已付定金", "已结清"];
 const guestRsvps: GuestRsvp[] = ["待确认", "会到场", "不参加"];
 const vendorStatuses: VendorStatus[] = ["待沟通", "已预约", "已签约"];
+const copyKinds: CopyKind[] = ["誓词", "请柬文案", "父母致辞", "短视频脚本", "朋友圈文案"];
+const copyTones: CopyTone[] = ["温柔正式", "喜庆热闹", "高级简洁"];
 
 const defaultProfile: CoupleProfile = {
   brideName: "新娘",
@@ -301,6 +318,18 @@ const aiSuggestions = [
   "请柬、誓词、父母致辞可以进入素材池，由 AI 分批生成。",
 ];
 
+const copywritingItems: CopywritingDoc[] = [
+  {
+    id: 1,
+    kind: "请柬文案",
+    tone: "温柔正式",
+    title: "红金中式婚礼请柬",
+    content:
+      "我们将于 2026 年 10 月 1 日，在杭州迎来人生中重要的一天。诚邀你来见证我们的婚礼，把祝福、笑声和温柔的时刻，一起留在这个红金色的秋天。",
+    createdAt: "默认文案",
+  },
+];
+
 const extraTasks = [
   "确认双方父母重点需求",
   "整理婚礼当天时间表",
@@ -403,6 +432,37 @@ function normalizeWeddingEvent(event: Partial<WeddingEvent> & { id: number }) {
     status: event.status || "待确认",
     notes: event.notes || "",
   };
+}
+
+function normalizeCopywriting(doc: Partial<CopywritingDoc> & { id: number }) {
+  return {
+    id: doc.id,
+    kind: doc.kind && copyKinds.includes(doc.kind) ? doc.kind : "请柬文案",
+    tone: doc.tone && copyTones.includes(doc.tone) ? doc.tone : "温柔正式",
+    title: doc.title || "新的 AI 文案",
+    content: doc.content || "",
+    createdAt: doc.createdAt || new Date().toLocaleString("zh-CN"),
+  };
+}
+
+function escapeHtml(value: string | number | boolean) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function downloadTextFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function normalizeTask(task: Partial<Task> & { id: number; title?: string }) {
@@ -515,6 +575,51 @@ function buildDraft(mode: Mode, subject: string) {
   ];
 }
 
+function buildCopywriting(profile: CoupleProfile, kind: CopyKind, tone: CopyTone, brief: string) {
+  const names = `${profile.brideName} & ${profile.groomName}`;
+  const shared = `婚期：${profile.weddingDate || "待确认"}｜城市：${profile.city}｜风格：${profile.style}｜宾客：${profile.guestCount} 位`;
+  const direction = brief.trim() || "希望文案真诚、好读、适合婚礼当天直接使用";
+  const toneLine =
+    tone === "喜庆热闹"
+      ? "语气可以更有仪式感和热闹感，适合现场氛围。"
+      : tone === "高级简洁"
+        ? "语气保持克制、清爽、有质感，避免堆砌形容词。"
+        : "语气温柔、正式、真诚，适合发给亲友或现场朗读。";
+
+  if (kind === "誓词") {
+    return {
+      title: `${names} 婚礼誓词`,
+      content: `亲爱的你：\n\n从决定一起走向这场婚礼开始，我越来越确定，生活里最珍贵的不是盛大的瞬间，而是每天都愿意把对方放在心上。\n\n在 ${profile.city}，在我们的 ${profile.style} 婚礼上，我想认真地告诉你：未来无论是热闹还是平淡，我都会和你站在一起。我们一起面对琐碎，一起分享好运，也一起把普通日子过得有光。\n\n${direction}\n\n今天，我把承诺说给你听，也说给在场所有爱我们的人听：我会珍惜你、尊重你、陪伴你，和你一起把未来慢慢过好。\n\n${toneLine}`,
+    };
+  }
+
+  if (kind === "请柬文案") {
+    return {
+      title: `${profile.city}${profile.style}婚礼请柬`,
+      content: `亲爱的朋友：\n\n我们将于 ${profile.weddingDate || "婚期待定"} 在 ${profile.city} 举办婚礼。\n\n这一天，我们想把最重要的时刻，分享给一路陪伴和祝福我们的人。诚邀你来到现场，见证 ${profile.brideName} 与 ${profile.groomName} 开启新的生活章节。\n\n婚礼风格：${profile.style}\n预计宾客：${profile.guestCount} 位\n\n${direction}\n\n期待与你相见，也期待把这份喜悦亲手递给你。\n\n${toneLine}`,
+    };
+  }
+
+  if (kind === "父母致辞") {
+    return {
+      title: `${names} 父母致辞`,
+      content: `各位亲朋好友：\n\n感谢大家在百忙之中来到 ${profile.city}，参加孩子们的婚礼。今天看到他们站在这里，我们心里有感动，也有放心。\n\n婚礼只是一天，婚姻是一生。希望你们以后遇到事情多商量，遇到困难多承担，遇到开心的事也记得一起分享。家永远是你们身后的支持。\n\n${direction}\n\n也感谢所有亲友一直以来的照顾和祝福。愿两个孩子在未来的日子里，相互理解、相互成就，把小家经营得温暖踏实。\n\n${toneLine}`,
+    };
+  }
+
+  if (kind === "短视频脚本") {
+    return {
+      title: `${profile.style}备婚短视频脚本`,
+      content: `片名：我们的备婚进度\n\n镜头 1｜开场\n画面：婚礼资料、请柬、红金色布置灵感一闪而过。\n口播：距离婚礼越来越近，我们正在把一件件小事慢慢完成。\n\n镜头 2｜过程\n画面：宾客名单、预算表、供应商沟通、婚礼当天流程。\n字幕：${shared}\n\n镜头 3｜情绪\n画面：两个人一起确认清单，镜头停在婚期上。\n口播：备婚有很多琐碎，但想到那一天会见到所有祝福，就觉得一切都值得。\n\n镜头 4｜收尾\n画面：喜缘工作台或婚礼倒计时。\n字幕：${direction}\n\n${toneLine}`,
+    };
+  }
+
+  return {
+    title: `${names} 朋友圈文案`,
+    content: `我们要结婚啦。\n\n婚期定在 ${profile.weddingDate || "待确认"}，地点在 ${profile.city}。从确定预算、整理宾客，到沟通供应商、安排流程，才发现婚礼是由很多认真完成的小事组成的。\n\n${profile.style} 是我们喜欢的样子，也希望那一天能把热闹、郑重和温柔都留住。\n\n${direction}\n\n谢谢每一份祝福，我们婚礼见。\n\n${toneLine}`,
+  };
+}
+
 export function WeddingPlanner() {
   const [profile, setProfile] = useState(defaultProfile);
   const [prompt, setPrompt] = useState("帮我把备婚拆成每天能完成的小事");
@@ -525,6 +630,10 @@ export function WeddingPlanner() {
   const [guestList, setGuestList] = useState(guestItems);
   const [vendorList, setVendorList] = useState(vendorItems);
   const [weddingTimeline, setWeddingTimeline] = useState(weddingTimelineItems);
+  const [copyKind, setCopyKind] = useState<CopyKind>("请柬文案");
+  const [copyTone, setCopyTone] = useState<CopyTone>("温柔正式");
+  const [copyBrief, setCopyBrief] = useState("想要一版可以直接发给亲友的文案");
+  const [copywritingList, setCopywritingList] = useState(copywritingItems);
   const [collaborationList, setCollaborationList] = useState(collaborationItems);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [notice, setNotice] = useState("AI 服务已就绪，输入需求即可生成今日计划。");
@@ -561,6 +670,9 @@ export function WeddingPlanner() {
         if (Array.isArray(workspace.weddingTimeline)) {
           setWeddingTimeline(workspace.weddingTimeline.map(normalizeWeddingEvent));
         }
+        if (Array.isArray(workspace.copywritingList)) {
+          setCopywritingList(workspace.copywritingList.map(normalizeCopywriting));
+        }
         if (Array.isArray(workspace.collaborationList)) {
           setCollaborationList(workspace.collaborationList);
         }
@@ -591,6 +703,7 @@ export function WeddingPlanner() {
       guestList,
       vendorList,
       weddingTimeline,
+      copywritingList,
       collaborationList,
       draft,
       mode,
@@ -602,6 +715,7 @@ export function WeddingPlanner() {
     aiConfigured,
     budgetList,
     collaborationList,
+    copywritingList,
     draft,
     guestList,
     mode,
@@ -897,6 +1011,210 @@ export function WeddingPlanner() {
     );
   }
 
+  function generateCopywriting() {
+    const generated = buildCopywriting(profile, copyKind, copyTone, copyBrief);
+    const newDoc: CopywritingDoc = {
+      id: nextId(copywritingList),
+      kind: copyKind,
+      tone: copyTone,
+      title: generated.title,
+      content: generated.content,
+      createdAt: new Date().toLocaleString("zh-CN"),
+    };
+
+    setCopywritingList((current) => [newDoc, ...current]);
+    setNotice(`已生成${copyKind}：${generated.title}`);
+    scrollToSection("copywriting");
+  }
+
+  function updateCopywriting(docId: number, patch: Partial<CopywritingDoc>) {
+    setCopywritingList((current) =>
+      current.map((doc) =>
+        doc.id === docId ? normalizeCopywriting({ ...doc, ...patch }) : doc,
+      ),
+    );
+  }
+
+  function deleteCopywriting(docId: number) {
+    const doc = copywritingList.find((item) => item.id === docId);
+    setCopywritingList((current) => current.filter((item) => item.id !== docId));
+    setNotice(doc ? `已删除文案：${doc.title}` : "已删除文案。");
+  }
+
+  async function copyCopywriting(doc: CopywritingDoc) {
+    const content = `${doc.title}\n\n${doc.content}`;
+    try {
+      await navigator.clipboard.writeText(content);
+      setNotice(`已复制文案：${doc.title}`);
+    } catch {
+      setNotice("复制被浏览器拦截，可以直接选中文案内容复制。");
+    }
+  }
+
+  function addCopywritingToTask(doc: CopywritingDoc) {
+    addTodayTask(`完善${doc.kind}：${doc.title}`);
+    setNotice(`已加入今日小事：${doc.title}`);
+  }
+
+  function buildPrintableHtml() {
+    const taskRows = taskList
+      .map(
+        (task) =>
+          `<tr><td>${escapeHtml(task.title)}</td><td>${escapeHtml(task.stage)}</td><td>${escapeHtml(task.status)}</td><td>${escapeHtml(task.assignee)}</td><td>${escapeHtml(task.dueDate || "待定")}</td></tr>`,
+      )
+      .join("");
+    const budgetRows = budgetList
+      .map(
+        (item) =>
+          `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(currency(item.total))}</td><td>${escapeHtml(currency(item.paid))}</td><td>${escapeHtml(item.status)}</td></tr>`,
+      )
+      .join("");
+    const copyRows = copywritingList
+      .map(
+        (doc) =>
+          `<section class="copy-doc"><h3>${escapeHtml(doc.title)}</h3><p>${escapeHtml(doc.kind)} / ${escapeHtml(doc.tone)} / ${escapeHtml(doc.createdAt)}</p><pre>${escapeHtml(doc.content)}</pre></section>`,
+      )
+      .join("");
+
+    return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>喜缘备婚清单</title>
+  <style>
+    body { margin: 0; padding: 32px; color: #3a0f14; font-family: Arial, "Microsoft YaHei", sans-serif; background: #fff7eb; }
+    h1 { margin: 0 0 8px; color: #8f1725; font-size: 30px; }
+    h2 { margin: 28px 0 12px; color: #8f1725; border-bottom: 2px solid #c99a48; padding-bottom: 8px; }
+    .meta { color: #8a5a50; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; background: #fffaf1; }
+    th, td { border: 1px solid #e2b16b; padding: 9px 10px; text-align: left; vertical-align: top; }
+    th { background: #f1cf84; color: #3a0f14; }
+    .copy-doc { break-inside: avoid; border: 1px solid #e2b16b; border-radius: 12px; padding: 14px; margin: 12px 0; background: #fffaf1; }
+    .copy-doc h3 { margin: 0 0 6px; color: #8f1725; }
+    .copy-doc p { margin: 0 0 10px; color: #8a5a50; font-weight: 700; }
+    pre { white-space: pre-wrap; word-break: break-word; margin: 0; font: inherit; line-height: 1.7; }
+    @media print { body { background: #fff; } }
+  </style>
+</head>
+<body>
+  <h1>喜缘备婚清单</h1>
+  <p class="meta">${escapeHtml(profile.brideName)} & ${escapeHtml(profile.groomName)}｜${escapeHtml(profile.city)}｜${escapeHtml(profile.weddingDate || "婚期待确认")}｜${escapeHtml(profile.style)}</p>
+  <h2>今日小事</h2>
+  <table><thead><tr><th>任务</th><th>阶段</th><th>状态</th><th>负责人</th><th>截止</th></tr></thead><tbody>${taskRows}</tbody></table>
+  <h2>预算表</h2>
+  <table><thead><tr><th>项目</th><th>总预算</th><th>已支付</th><th>状态</th></tr></thead><tbody>${budgetRows}</tbody></table>
+  <h2>AI 文案生成区</h2>
+  ${copyRows || "<p>暂无文案。</p>"}
+</body>
+</html>`;
+  }
+
+  function exportPdf() {
+    const printWindow = window.open("", "_blank", "width=980,height=720");
+    if (!printWindow) {
+      setNotice("浏览器拦截了 PDF 页面，请允许弹窗后重试。");
+      return;
+    }
+
+    printWindow.document.write(buildPrintableHtml());
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    setNotice("已打开 PDF 打印页，可选择“保存为 PDF”。");
+  }
+
+  function exportExcel() {
+    const table = (title: string, headers: string[], rows: (string | number | boolean)[][]) => `
+      <h2>${escapeHtml(title)}</h2>
+      <table border="1">
+        <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+        <tbody>${rows
+          .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
+          .join("")}</tbody>
+      </table>`;
+    const excelContent = `\ufeff<html><head><meta charset="utf-8" /></head><body>
+      <h1>喜缘备婚数据</h1>
+      ${table("新人资料", ["项目", "内容"], [
+        ["新娘", profile.brideName],
+        ["新郎", profile.groomName],
+        ["婚期", profile.weddingDate || "待确认"],
+        ["城市", profile.city],
+        ["宾客人数", profile.guestCount],
+        ["婚礼风格", profile.style],
+        ["预算上限", currency(profile.budgetCap)],
+      ])}
+      ${table(
+        "今日小事",
+        ["任务", "阶段", "状态", "负责人", "截止", "备注", "确认标准"],
+        taskList.map((task) => [
+          task.title,
+          task.stage,
+          task.status,
+          task.assignee,
+          task.dueDate || "待定",
+          task.notes || "无",
+          task.criteria || "无",
+        ]),
+      )}
+      ${table(
+        "预算表",
+        ["项目", "总预算", "已支付", "状态"],
+        budgetList.map((item) => [item.name, item.total, item.paid, item.status]),
+      )}
+      ${table(
+        "宾客名单",
+        ["姓名", "关系", "人数", "回执", "携伴", "桌位", "备注"],
+        guestList.map((guest) => [
+          guest.name,
+          guest.relation,
+          guest.count,
+          guest.rsvp,
+          guest.companion ? "是" : "否",
+          guest.table,
+          guest.notes || "无",
+        ]),
+      )}
+      ${table(
+        "供应商管理",
+        ["类型", "名称", "联系人", "电话", "报价", "定金", "状态", "备注"],
+        vendorList.map((vendor) => [
+          vendor.category,
+          vendor.name,
+          vendor.contact || "待定",
+          vendor.phone || "待定",
+          vendor.quote,
+          vendor.deposit,
+          vendor.status,
+          vendor.notes || "无",
+        ]),
+      )}
+      ${table(
+        "婚礼当天流程",
+        ["时间", "流程", "负责人", "地点", "状态", "备注"],
+        weddingTimeline.map((event) => [
+          event.time,
+          event.title,
+          event.owner,
+          event.location,
+          event.status,
+          event.notes || "无",
+        ]),
+      )}
+      ${table(
+        "AI 文案生成区",
+        ["类型", "语气", "标题", "内容", "创建时间"],
+        copywritingList.map((doc) => [doc.kind, doc.tone, doc.title, doc.content, doc.createdAt]),
+      )}
+    </body></html>`;
+
+    downloadTextFile(
+      `喜缘备婚数据-${profile.weddingDate || "未定婚期"}.xls`,
+      excelContent,
+      "application/vnd.ms-excel;charset=utf-8",
+    );
+    setNotice("已导出 Excel 表格，可直接用 Excel 打开。");
+  }
+
   function resetWorkspace() {
     setProfile(defaultProfile);
     setTaskList(tasks);
@@ -904,6 +1222,10 @@ export function WeddingPlanner() {
     setGuestList(guestItems);
     setVendorList(vendorItems);
     setWeddingTimeline(weddingTimelineItems);
+    setCopyKind("请柬文案");
+    setCopyTone("温柔正式");
+    setCopyBrief("想要一版可以直接发给亲友的文案");
+    setCopywritingList(copywritingItems);
     setCollaborationList(collaborationItems);
     setDraft(aiSuggestions);
     setMode("文本");
@@ -961,6 +1283,12 @@ export function WeddingPlanner() {
           `${index + 1}. ${event.time}｜${event.title}｜负责人：${event.owner}｜地点：${event.location}｜状态：${event.status}｜备注：${event.notes || "无"}`,
       ),
       "",
+      `## AI 文案生成区`,
+      ...copywritingList.map(
+        (doc, index) =>
+          `${index + 1}. ${doc.title}｜${doc.kind}｜${doc.tone}｜${doc.createdAt}\n\n${doc.content}`,
+      ),
+      "",
       `## 协作清单`,
       ...collaborationList.map((item) => `- ${item.done ? "[x]" : "[ ]"} ${item.title}`),
       "",
@@ -969,15 +1297,11 @@ export function WeddingPlanner() {
       "",
     ].join("\n");
 
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `喜缘备婚清单-${profile.weddingDate || "未定婚期"}.md`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    downloadTextFile(
+      `喜缘备婚清单-${profile.weddingDate || "未定婚期"}.md`,
+      content,
+      "text/markdown;charset=utf-8",
+    );
     setNotice("已导出备婚清单，可发送给家人或策划师。");
   }
 
@@ -1004,6 +1328,7 @@ export function WeddingPlanner() {
             <a href="#profile">新人资料</a>
             <a href="#plan">备婚计划</a>
             <a href="#details">阶段计划</a>
+            <a href="#copywriting">AI 文案</a>
             <a href="#business">业务模块</a>
             <a href="#collaboration">协助清单</a>
           </div>
@@ -1170,6 +1495,14 @@ export function WeddingPlanner() {
             <Download size={17} aria-hidden="true" />
             导出备婚清单
           </button>
+          <button type="button" className="subtle-action" onClick={exportPdf}>
+            <Printer size={17} aria-hidden="true" />
+            导出 PDF
+          </button>
+          <button type="button" className="subtle-action" onClick={exportExcel}>
+            <FileSpreadsheet size={17} aria-hidden="true" />
+            导出 Excel
+          </button>
         </div>
       </section>
 
@@ -1184,6 +1517,94 @@ export function WeddingPlanner() {
             </article>
           );
         })}
+      </section>
+
+      <section className="copywriting-panel panel" id="copywriting">
+        <div className="section-title">
+          <Sparkles size={19} aria-hidden="true" />
+          <h2>AI 文案生成区</h2>
+        </div>
+        <div className="copywriting-controls">
+          <label>
+            文案类型
+            <select
+              value={copyKind}
+              onChange={(event) => setCopyKind(event.target.value as CopyKind)}
+            >
+              {copyKinds.map((kind) => (
+                <option key={kind}>{kind}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            语气风格
+            <select
+              value={copyTone}
+              onChange={(event) => setCopyTone(event.target.value as CopyTone)}
+            >
+              {copyTones.map((tone) => (
+                <option key={tone}>{tone}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            重点要求
+            <textarea
+              value={copyBrief}
+              onChange={(event) => setCopyBrief(event.target.value)}
+            />
+          </label>
+          <button type="button" className="ghost-action" onClick={generateCopywriting}>
+            <Sparkles size={17} aria-hidden="true" />
+            生成文案
+          </button>
+        </div>
+        <div className="copywriting-list">
+          {copywritingList.map((doc) => (
+            <article className="copywriting-card" key={doc.id}>
+              <div className="copywriting-meta">
+                <span>{doc.kind}</span>
+                <span>{doc.tone}</span>
+                <span>{doc.createdAt}</span>
+              </div>
+              <input
+                className="copywriting-title-input"
+                value={doc.title}
+                onChange={(event) => updateCopywriting(doc.id, { title: event.target.value })}
+                aria-label="文案标题"
+              />
+              <textarea
+                className="copywriting-content"
+                value={doc.content}
+                onChange={(event) => updateCopywriting(doc.id, { content: event.target.value })}
+                aria-label={`${doc.title}内容`}
+              />
+              <div className="copywriting-actions">
+                <button type="button" className="subtle-action" onClick={() => copyCopywriting(doc)}>
+                  <Copy size={16} aria-hidden="true" />
+                  复制
+                </button>
+                <button
+                  type="button"
+                  className="subtle-action"
+                  onClick={() => addCopywritingToTask(doc)}
+                >
+                  <Plus size={16} aria-hidden="true" />
+                  加入任务
+                </button>
+                <button
+                  type="button"
+                  className="delete-task"
+                  onClick={() => deleteCopywriting(doc.id)}
+                  aria-label={`删除${doc.title}`}
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  <span>删除</span>
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="planner-grid" id="plan">

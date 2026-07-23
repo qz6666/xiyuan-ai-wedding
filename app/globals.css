@@ -177,7 +177,7 @@ button {
 }
 
 .nav-links {
-  flex: 0 1 560px;
+  flex: 0 1 660px;
   justify-content: space-between;
   gap: 18px;
   min-width: 0;
@@ -1095,6 +1095,116 @@ meter::-webkit-meter-optimum-value {
   margin-top: 0;
 }
 
+.copywriting-panel {
+  margin-top: 18px;
+}
+
+.copywriting-controls {
+  display: grid;
+  grid-template-columns: minmax(124px, 0.7fr) minmax(124px, 0.7fr) minmax(0, 1.7fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.copywriting-controls label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.copywriting-controls select,
+.copywriting-controls textarea,
+.copywriting-title-input,
+.copywriting-content {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(184, 36, 53, 0.28);
+  border-radius: 16px;
+  background: rgba(255, 248, 234, 0.76);
+  color: var(--ink);
+  outline: none;
+  font-weight: 850;
+  box-shadow: var(--red-gold-ring);
+}
+
+.copywriting-controls select {
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.copywriting-controls textarea {
+  min-height: 42px;
+  max-height: 96px;
+  padding: 11px 12px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.copywriting-controls .ghost-action {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.copywriting-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.copywriting-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 248, 234, 0.68);
+  box-shadow: var(--red-gold-ring);
+}
+
+.copywriting-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.copywriting-meta span {
+  min-height: 28px;
+  padding: 6px 10px;
+  border: 1px solid rgba(184, 36, 53, 0.26);
+  border-radius: 999px;
+  background: rgba(255, 232, 216, 0.78);
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.copywriting-title-input {
+  min-height: 42px;
+  padding: 0 12px;
+  color: var(--red-dark);
+  font-size: 18px;
+}
+
+.copywriting-content {
+  min-height: 168px;
+  padding: 12px;
+  resize: vertical;
+  color: #4e2424;
+  line-height: 1.68;
+}
+
+.copywriting-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.copywriting-actions .delete-task {
+  min-height: 36px;
+}
+
 .profile-summary span {
   min-height: 34px;
   padding: 8px 12px;
@@ -1292,6 +1402,15 @@ meter::-webkit-meter-optimum-value {
   .vendor-row,
   .event-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .copywriting-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .copywriting-controls label:nth-child(3),
+  .copywriting-controls .ghost-action {
+    grid-column: 1 / -1;
   }
 
   .business-row textarea {
@@ -1598,7 +1717,29 @@ meter::-webkit-meter-optimum-value {
     grid-template-columns: 1fr;
   }
 
+  .export-actions {
+    grid-template-columns: 1fr;
+  }
+
   .subtle-action {
+    width: 100%;
+  }
+
+  .copywriting-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .copywriting-controls label:nth-child(3),
+  .copywriting-controls .ghost-action {
+    grid-column: auto;
+  }
+
+  .copywriting-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .copywriting-actions .delete-task {
     width: 100%;
   }
 
