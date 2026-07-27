@@ -55,40 +55,51 @@ interface ExecutionContext {
 // const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
 
 const worker = {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(
+    request: Request,
+    env?: Env,
+    ctx?: ExecutionContext,
+  ): Promise<Response> {
+    const runtimeEnv = env ?? ({} as Env);
+    const runtimeContext: ExecutionContext = ctx ?? {
+      waitUntil(promise) {
+        void promise.catch(() => undefined);
+      },
+      passThroughOnException() {},
+    };
     const url = new URL(request.url);
     const securityResponse = await enforceRequestSecurity(
       request,
-      env.WEDDING_DATA,
+      runtimeEnv.WEDDING_DATA,
     );
     if (securityResponse) {
       if (securityResponse.status === 429) {
-        ctx.waitUntil(
-          recordOperationalMetric(env.WEDDING_DATA, "rateLimited"),
+        runtimeContext.waitUntil(
+          recordOperationalMetric(runtimeEnv.WEDDING_DATA, "rateLimited"),
         );
       }
       return applySecurityHeaders(request, securityResponse);
     }
 
-    if (url.pathname === "/_vinext/image") {
+    if (url.pathname === "/_vinext/image" && runtimeEnv.ASSETS && runtimeEnv.IMAGES) {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       const response = await handleImageOptimization(request, {
-        fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),
+        fetchAsset: (path) => runtimeEnv.ASSETS.fetch(new Request(new URL(path, request.url))),
         transformImage: async (body, { width, format, quality }) => {
-          const result = await env.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
+          const result = await runtimeEnv.IMAGES.input(body).transform(width > 0 ? { width } : {}).output({ format, quality });
           return result.response();
         },
       }, allowedWidths);
       return applySecurityHeaders(request, response);
     }
 
-    const response = await handler.fetch(request, env, ctx);
-    ctx.waitUntil(recordOperationalMetric(env.WEDDING_DATA, "requests"));
+    const response = await handler.fetch(request, runtimeEnv, runtimeContext);
+    runtimeContext.waitUntil(recordOperationalMetric(runtimeEnv.WEDDING_DATA, "requests"));
     if (response.status >= 500) {
-      ctx.waitUntil(
+      runtimeContext.waitUntil(
         Promise.all([
-          recordOperationalMetric(env.WEDDING_DATA, "errors"),
-          recordOperationalIncident(env.WEDDING_DATA, {
+          recordOperationalMetric(runtimeEnv.WEDDING_DATA, "errors"),
+          recordOperationalIncident(runtimeEnv.WEDDING_DATA, {
             source: "http",
             severity: response.status >= 503 ? "critical" : "error",
             code: "http_server_error",
