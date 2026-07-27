@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "xiyuan-ai-wedding",
+  "compatibility_date": "2026-05-22",
+  "kv_namespaces": [
+    {
+      "binding": "WEDDING_DATA"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "VIDEO_TASK_QUEUE",
+        "queue": "xiyuan-video-tasks"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "xiyuan-video-tasks",
+        "max_batch_size": 5,
+        "max_batch_timeout": 10,
+        "max_retries": 8,
+        "dead_letter_queue": "xiyuan-video-tasks-dlq"
+      }
+    ]
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *", "0 1 * * *"]
+  }
+}

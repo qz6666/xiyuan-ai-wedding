@@ -1,0 +1,1 @@
+CREATE INDEX `account_deletions_status_idx` ON `account_deletions` (`status`,`scheduled_for`);
