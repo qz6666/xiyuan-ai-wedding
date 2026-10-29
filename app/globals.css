@@ -204,6 +204,20 @@ button {
   transform: translateY(-50%);
 }
 
+.wedding-story-embed {
+  margin-top: 24px;
+  scroll-margin-top: 24px;
+}
+
+.wedding-story-embed iframe {
+  display: block;
+  width: 100%;
+  min-height: 960px;
+  border: 0;
+  border-radius: 28px;
+  background: #f3e8e3;
+}
+
 .brand,
 .nav-actions,
 .nav-links,

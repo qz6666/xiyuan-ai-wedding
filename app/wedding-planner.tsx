@@ -62,6 +62,7 @@ import {
 } from "lucide-react";
 import NextImage from "next/image";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WeddingStoryEmbed } from "./wedding-story-embed";
 
 const WeddingScene3D = lazy(async () => ({
   default: (await import("./wedding-scene-3d")).WeddingScene3D,
@@ -5640,6 +5641,7 @@ export function WeddingPlanner() {
             <a href="#details">阶段计划</a>
             <a href="#copywriting">AI 文案</a>
             <a href="#media-studio">AI 影像</a>
+            <a href="#wedding-story">婚礼故事</a>
             <a href="#business">业务模块</a>
             <a href="#collaboration">协助清单</a>
             {currentUser?.isAdmin && <a href="#admin">运营后台</a>}
@@ -7278,6 +7280,8 @@ export function WeddingPlanner() {
           文案由 {mediaService.copy.model} 生成；场景效果图和证件照由 {mediaService.image.model} 生成；视频由 {mediaService.video.model} 异步渲染。3D 预览在本机实时运行，不消耗 API 额度。
         </p>
       </section>
+
+      <WeddingStoryEmbed />
 
       <section className="planner-grid" id="plan">
         <article className="panel task-panel">
