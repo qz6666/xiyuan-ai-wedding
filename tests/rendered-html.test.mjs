@@ -1698,11 +1698,11 @@ test("applies request security, rate limiting, health checks, and monitoring dat
   const bindings = { WEDDING_DATA: store };
 
   const page = await request("/", {}, bindings);
-  assert.equal(page.headers.get("x-frame-options"), "DENY");
+  assert.equal(page.headers.get("x-frame-options"), "SAMEORIGIN");
   assert.equal(page.headers.get("x-content-type-options"), "nosniff");
   assert.match(
     page.headers.get("content-security-policy") || "",
-    /frame-ancestors 'none'/,
+    /frame-ancestors 'self'/,
   );
 
   const crossSite = await request(

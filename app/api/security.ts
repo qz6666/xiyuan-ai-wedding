@@ -143,7 +143,7 @@ export async function enforceRequestSecurity(
 export function applySecurityHeaders(request: Request, response: Response) {
   const headers = new Headers(response.headers);
   headers.set("x-content-type-options", "nosniff");
-  headers.set("x-frame-options", "DENY");
+  headers.set("x-frame-options", "SAMEORIGIN");
   headers.set("referrer-policy", "strict-origin-when-cross-origin");
   headers.set(
     "permissions-policy",
@@ -151,7 +151,7 @@ export function applySecurityHeaders(request: Request, response: Response) {
   );
   headers.set(
     "content-security-policy",
-    "base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://checkout.stripe.com",
+    "base-uri 'self'; object-src 'none'; frame-ancestors 'self'; form-action 'self' https://checkout.stripe.com",
   );
   if (new URL(request.url).protocol === "https:") {
     headers.set(
