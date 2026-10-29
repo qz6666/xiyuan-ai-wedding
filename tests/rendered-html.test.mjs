@@ -90,8 +90,8 @@ test("server-renders the Xiyuan wedding landing page", async () => {
   assert.match(html, /<title>喜缘 · AI 备婚搭子<\/title>/i);
   assert.match(html, /你的 AI 备婚搭子/);
   assert.match(html, /让备婚/);
-  assert.match(html, /像恋爱一样轻松/);
-  assert.match(html, /准备好开始你们的备婚旅程了吗/);
+  assert.match(html, /像婚礼一样从容/);
+  assert.match(html, /今天，先完成/);
   assert.match(html, /AI 服务已就绪/);
   assert.match(html, /喜缘小助手/);
   assert.match(html, /常用入口/);
