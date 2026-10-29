@@ -6225,89 +6225,91 @@ export function WeddingPlanner() {
       </section>
 
       <section className="assistant-dock" id="service" aria-labelledby="assistant-dock-title">
-        <div className="assistant-dock-heading">
-          <span className="assistant-dock-icon" aria-hidden="true">
-            <Bot size={18} />
-          </span>
-          <div>
-            <h2 id="assistant-dock-title">今天，最想先解决哪件事？</h2>
-            <p>直接告诉喜缘，剩下的拆解、排期和检查清单会放进你们的备婚空间。</p>
-          </div>
-        </div>
-
-        <div className="assistant-dock-controls">
-          <div className="mode-pills" aria-label="生成模式">
-            {(["文本", "图片", "视频"] as Mode[]).map((item) => (
-              <button
-                type="button"
-                className={mode === item ? "selected" : ""}
-                onClick={() => selectMode(item)}
-                key={item}
-              >
-                {item === "文本" && <CheckCircle2 size={15} aria-hidden="true" />}
-                {item === "图片" && <ImageIcon size={15} aria-hidden="true" />}
-                {item === "视频" && <Video size={15} aria-hidden="true" />}
-                {item}
-              </button>
-            ))}
-          </div>
-
-          <p className="notice-bar" aria-live="polite">
-            {notice}
-          </p>
-
-          <div className="prompt-row">
-            <label className="prompt-box">
-              <input
-                ref={promptRef}
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") submitAssistantRequest();
-                }}
-                aria-label="告诉喜缘小助手你的备婚需求"
-              />
-              <button type="button" onClick={submitAssistantRequest} aria-label="让小助手处理需求">
-                <Send size={18} aria-hidden="true" />
-              </button>
-            </label>
-            <button type="button" className="config-button" onClick={configureService}>
-              <Settings size={18} aria-hidden="true" />
-              {aiConfigured ? "重新配置 AI 服务" : "配置 AI 服务"}
-            </button>
-          </div>
-
-          <div className="assistant-matcher" aria-live="polite">
-            <div className="assistant-matcher-title">
-              <strong>喜缘小助手</strong>
-              <span>
-                {primaryAssistantMatch
-                  ? `匹配到：${primaryAssistantMatch.label}`
-                  : "常用入口"}
-              </span>
+        <div className="assistant-dock-inner">
+          <div className="assistant-dock-heading">
+            <span className="assistant-dock-icon" aria-hidden="true">
+              <Bot size={18} />
+            </span>
+            <div>
+              <h2 id="assistant-dock-title">今天，最想先解决哪件事？</h2>
+              <p>直接告诉喜缘，剩下的拆解、排期和检查清单会放进你们的备婚空间。</p>
             </div>
-            <div className="assistant-match-actions">
-              {(assistantMatches.length > 0
-                ? assistantMatches
-                : assistantIntents.filter((intent) =>
-                    ["plan", "budget", "guest", "seating", "command"].includes(intent.id),
-                  )
-              ).map((intent) => (
+          </div>
+
+          <div className="assistant-dock-controls">
+            <div className="mode-pills" aria-label="生成模式">
+              {(["文本", "图片", "视频"] as Mode[]).map((item) => (
                 <button
                   type="button"
-                  className={intent.id === primaryAssistantMatch?.id ? "is-primary" : ""}
-                  onClick={() =>
-                    runAssistantIntent(
-                      intent,
-                      assistantMatches.length > 0 ? prompt : intent.example,
-                    )
-                  }
-                  key={intent.id}
+                  className={mode === item ? "selected" : ""}
+                  onClick={() => selectMode(item)}
+                  key={item}
                 >
-                  <span>{intent.label}</span>
-                  <ChevronRight size={14} aria-hidden="true" />
+                  {item === "文本" && <CheckCircle2 size={15} aria-hidden="true" />}
+                  {item === "图片" && <ImageIcon size={15} aria-hidden="true" />}
+                  {item === "视频" && <Video size={15} aria-hidden="true" />}
+                  {item}
                 </button>
               ))}
+            </div>
+
+            <p className="notice-bar" aria-live="polite">
+              {notice}
+            </p>
+
+            <div className="prompt-row">
+              <label className="prompt-box">
+                <input
+                  ref={promptRef}
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") submitAssistantRequest();
+                  }}
+                  aria-label="告诉喜缘小助手你的备婚需求"
+                />
+                <button type="button" onClick={submitAssistantRequest} aria-label="让小助手处理需求">
+                  <Send size={18} aria-hidden="true" />
+                </button>
+              </label>
+              <button type="button" className="config-button" onClick={configureService}>
+                <Settings size={18} aria-hidden="true" />
+                {aiConfigured ? "重新配置 AI 服务" : "配置 AI 服务"}
+              </button>
+            </div>
+
+            <div className="assistant-matcher" aria-live="polite">
+              <div className="assistant-matcher-title">
+                <strong>喜缘小助手</strong>
+                <span>
+                  {primaryAssistantMatch
+                    ? `匹配到：${primaryAssistantMatch.label}`
+                    : "常用入口"}
+                </span>
+              </div>
+              <div className="assistant-match-actions">
+                {(assistantMatches.length > 0
+                  ? assistantMatches
+                  : assistantIntents.filter((intent) =>
+                      ["plan", "budget", "guest", "seating", "command"].includes(intent.id),
+                    )
+                ).map((intent) => (
+                  <button
+                    type="button"
+                    className={intent.id === primaryAssistantMatch?.id ? "is-primary" : ""}
+                    onClick={() =>
+                      runAssistantIntent(
+                        intent,
+                        assistantMatches.length > 0 ? prompt : intent.example,
+                      )
+                    }
+                    key={intent.id}
+                  >
+                    <span>{intent.label}</span>
+                    <ChevronRight size={14} aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
