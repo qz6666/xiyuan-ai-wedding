@@ -1653,6 +1653,7 @@ export function WeddingPlanner() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [heroPhotoReady, setHeroPhotoReady] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("登录");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -1729,6 +1730,7 @@ export function WeddingPlanner() {
   const [notice, setNotice] = useState("AI 服务已就绪，输入需求即可生成今日计划。");
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [openTaskId, setOpenTaskId] = useState<number | null>(tasks[0]?.id ?? null);
+  const pageRef = useRef<HTMLElement>(null);
   const promptRef = useRef<HTMLInputElement>(null);
   const portraitInputRef = useRef<HTMLInputElement>(null);
   const mediaUploadRef = useRef<HTMLInputElement>(null);
@@ -1812,6 +1814,133 @@ export function WeddingPlanner() {
     void checkSession();
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!heroPhotoReady) return;
+    const root = pageRef.current;
+    if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let cancelled = false;
+    const animations: Animation[] = [];
+
+    async function playHeroTimeline() {
+      try {
+        await document.fonts.ready;
+      } catch {
+        // The authored layout remains usable if the font set cannot be awaited.
+      }
+      if (cancelled) return;
+
+      const headerItems = [
+        root.querySelector(".top-nav .brand"),
+        ...root.querySelectorAll(".nav-links a"),
+        root.querySelector(".nav-command-group .account-button"),
+        root.querySelector(".nav-command-group > button:last-child"),
+      ].filter((item): item is Element => item instanceof Element);
+
+      headerItems.forEach((item, index) => {
+        animations.push(
+          item.animate(
+            [
+              { opacity: 0, transform: "translateY(-14px)" },
+              { opacity: 1, transform: "translateY(0)" },
+            ],
+            {
+              duration: 480,
+              delay: index * 45,
+              easing: "cubic-bezier(.2,.72,.24,1)",
+              fill: "backwards",
+            },
+          ),
+        );
+      });
+
+      const dot = root.querySelector("[data-hero-dot]");
+      const eyebrow = root.querySelector("[data-hero-eyebrow]");
+      if (dot) {
+        animations.push(
+          dot.animate(
+            [
+              { clipPath: "circle(0%)" },
+              { clipPath: "circle(50%)" },
+            ],
+            { duration: 380, delay: 320, easing: "ease-out", fill: "backwards" },
+          ),
+        );
+      }
+      if (eyebrow) {
+        animations.push(
+          eyebrow.animate(
+            [
+              { opacity: 0, transform: "translateX(-10px)" },
+              { opacity: 1, transform: "translateX(0)" },
+            ],
+            { duration: 460, delay: 380, easing: "ease-out", fill: "backwards" },
+          ),
+        );
+      }
+
+      root.querySelectorAll("[data-hero-headline]").forEach((line, index) => {
+        animations.push(
+          line.animate(
+            [
+              { transform: "translateY(112%)" },
+              { transform: "translateY(0)" },
+            ],
+            {
+              duration: 760,
+              delay: 430 + index * 90,
+              easing: "cubic-bezier(.16,.74,.2,1)",
+              fill: "backwards",
+            },
+          ),
+        );
+      });
+
+      root.querySelectorAll("[data-hero-settle]").forEach((item, index) => {
+        animations.push(
+          item.animate(
+            [
+              { opacity: 0, transform: "translateY(16px)" },
+              { opacity: 1, transform: "translateY(0)" },
+            ],
+            {
+              duration: 620,
+              delay: 690 + index * 80,
+              easing: "cubic-bezier(.2,.72,.24,1)",
+              fill: "backwards",
+            },
+          ),
+        );
+      });
+
+      root.querySelectorAll("[data-hero-card]").forEach((card, index) => {
+        animations.push(
+          card.animate(
+            [
+              { opacity: 0, transform: "translateY(28px)" },
+              { opacity: 1, transform: "translateY(0)" },
+            ],
+            {
+              duration: 680,
+              delay: 760 + index * 100,
+              easing: "cubic-bezier(.2,.72,.24,1)",
+              fill: "backwards",
+            },
+          ),
+        );
+      });
+
+      await Promise.allSettled(animations.map((animation) => animation.finished));
+      if (!cancelled) animations.forEach((animation) => animation.cancel());
+    }
+
+    void playHeroTimeline();
+    return () => {
+      cancelled = true;
+      animations.forEach((animation) => animation.cancel());
+    };
+  }, [heroPhotoReady]);
 
   useEffect(() => {
     if (!authChecked || !currentUser) return;
@@ -3212,11 +3341,6 @@ export function WeddingPlanner() {
     scrollToSection("service");
     promptRef.current?.focus();
     setNotice("已进入 AI 服务区，说出你们现在最想解决的备婚问题。");
-  }
-
-  function continuePlan() {
-    scrollToSection("plan");
-    setNotice("已定位到备婚计划，继续推进今日任务即可。");
   }
 
   function mediaRequestHeaders(
@@ -5620,7 +5744,7 @@ export function WeddingPlanner() {
   }
 
   return (
-    <main className="xiyuan-page">
+    <main className="xiyuan-page" ref={pageRef}>
       <nav className="top-nav" aria-label="喜缘导航">
         <div className="brand">
           <span className="brand-mark">
@@ -5643,6 +5767,7 @@ export function WeddingPlanner() {
           onClick={() => setMobileNavOpen((current) => !current)}
           aria-expanded={mobileNavOpen}
           aria-controls="primary-navigation"
+          aria-label={mobileNavOpen ? "关闭导航菜单" : "打开导航菜单"}
         >
           {mobileNavOpen ? <X size={19} aria-hidden="true" /> : <Menu size={19} aria-hidden="true" />}
           {mobileNavOpen ? "收起" : "导航"}
@@ -5666,14 +5791,23 @@ export function WeddingPlanner() {
             <button
               type="button"
               className="account-button"
-              onClick={() => setAuthPanelOpen((current) => !current)}
+              onClick={() => {
+                setAuthPanelOpen((current) => !current);
+                setMobileNavOpen(false);
+              }}
               aria-expanded={authPanelOpen}
               aria-controls="account-panel"
             >
               <CircleUserRound size={17} aria-hidden="true" />
               {currentUser ? currentUser.displayName : "登录"}
             </button>
-            <button type="button" onClick={startExperience}>
+            <button
+              type="button"
+              onClick={() => {
+                setMobileNavOpen(false);
+                startExperience();
+              }}
+            >
               开始体验
             </button>
           </div>
@@ -6023,141 +6157,160 @@ export function WeddingPlanner() {
       )}
 
       <section className="hero">
-        <NextImage
-          className="hero-backdrop"
-          src="/media-red-gold-ceremony.webp"
-          alt="红金中式婚礼仪式通道"
-          fill
-          priority
-          sizes="(max-width: 980px) 100vw, 1220px"
-        />
-        <div className="hero-scrim" aria-hidden="true" />
+        <div className="hero-photo-frame" aria-hidden="true">
+          <NextImage
+            className="hero-photo"
+            src="/media-red-gold-film.webp"
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            onLoad={() => setHeroPhotoReady(true)}
+          />
+        </div>
+        <div className="hero-photo-scrim" aria-hidden="true" />
+
         <div className="hero-copy">
-          <h1>
-            <span>让备婚，</span>
-            <span>像婚礼一样从容</span>
-          </h1>
-          <p className="hero-subtitle">
-            喜缘是你的 AI 备婚搭子。每天只推进一件小事，把预算、文案、影像与宾客安排成一条清晰的路。
+          <p className="hero-eyebrow">
+            <span className="hero-tracking-dot" data-hero-dot aria-hidden="true" />
+            <span data-hero-eyebrow>24/7 陪你们备婚</span>
           </p>
-          <div className="hero-meta" aria-label="当前婚礼信息">
-            <span>婚期 {daysUntil === null ? "待确认" : `还有 ${Math.max(daysUntil, 0)} 天`}</span>
-            <span>{profile.city}</span>
-            <span>{profile.style}</span>
-            <span>{profile.guestCount} 位宾客</span>
-          </div>
+          <h1>
+            <span className="hero-headline-mask">
+              <span data-hero-headline>让备婚，</span>
+            </span>
+            <span className="hero-headline-mask">
+              <span data-hero-headline>像婚礼般从容。</span>
+            </span>
+          </h1>
+          <p className="hero-subtitle" data-hero-settle>
+            睡眠、预算、文案、影像与宾客安排，由喜缘持续整理成每天能完成的一小步。
+          </p>
+          <button type="button" className="hero-cta" onClick={startExperience} data-hero-settle>
+            开始今天的备婚
+            <ChevronRight size={17} aria-hidden="true" />
+          </button>
+        </div>
 
-          <div className="hero-controls">
-            <div className="mode-pills" aria-label="生成模式">
-              {(["文本", "图片", "视频"] as Mode[]).map((item) => (
-                <button
-                  type="button"
-                  className={mode === item ? "selected" : ""}
-                  onClick={() => selectMode(item)}
-                  key={item}
-                >
-                  {item === "文本" && <CheckCircle2 size={15} aria-hidden="true" />}
-                  {item === "图片" && <ImageIcon size={15} aria-hidden="true" />}
-                  {item === "视频" && <Video size={15} aria-hidden="true" />}
-                  {item}
-                </button>
-              ))}
+        <aside className="hero-metrics" aria-label="今日备婚指标">
+          <article className="hero-metric-card" data-hero-card>
+            <div className="hero-metric-label">
+              <ListChecks size={16} aria-hidden="true" />
+              <span>今日任务</span>
             </div>
-
-            <p className="notice-bar" aria-live="polite">
-              {notice}
-            </p>
-
-            <div className="prompt-row" id="service">
-              <label className="prompt-box">
-                <input
-                  ref={promptRef}
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") submitAssistantRequest();
-                  }}
-                  aria-label="告诉喜缘小助手你的备婚需求"
-                />
-                <button type="button" onClick={submitAssistantRequest} aria-label="让小助手处理需求">
-                  <Send size={18} aria-hidden="true" />
-                </button>
-              </label>
-              <button type="button" className="config-button" onClick={configureService}>
-                <Settings size={18} aria-hidden="true" />
-                {aiConfigured ? "重新配置 AI 服务" : "配置 AI 服务"}
-              </button>
+            <strong>{String(taskList.length).padStart(2, "0")}</strong>
+            <span className="hero-metric-unit">ITEMS</span>
+          </article>
+          <article className="hero-metric-card" data-hero-card>
+            <div className="hero-metric-label">
+              <Gauge size={16} aria-hidden="true" />
+              <span>完成进度</span>
             </div>
-
-            <div className="assistant-matcher" aria-live="polite">
-              <div className="assistant-matcher-title">
-                <Bot size={17} aria-hidden="true" />
-                <strong>喜缘小助手</strong>
-                <span>
-                  {primaryAssistantMatch
-                    ? `匹配到：${primaryAssistantMatch.label}`
-                    : "常用入口"}
-                </span>
-              </div>
-              <div className="assistant-match-actions">
-                {(assistantMatches.length > 0
-                  ? assistantMatches
-                  : assistantIntents.filter((intent) =>
-                      ["plan", "budget", "guest", "seating", "command"].includes(intent.id),
-                    )
-                ).map((intent) => (
-                  <button
-                    type="button"
-                    className={intent.id === primaryAssistantMatch?.id ? "is-primary" : ""}
-                    onClick={() =>
-                      runAssistantIntent(
-                        intent,
-                        assistantMatches.length > 0 ? prompt : intent.example,
-                      )
-                    }
-                    key={intent.id}
-                  >
-                    <span>{intent.label}</span>
-                    <ChevronRight size={14} aria-hidden="true" />
-                  </button>
-                ))}
-              </div>
+            <strong>{taskProgress}%</strong>
+            <span className="hero-metric-unit">DONE</span>
+          </article>
+          <article className="hero-metric-card" data-hero-card>
+            <div className="hero-metric-label">
+              <CircleDollarSign size={16} aria-hidden="true" />
+              <span>预算余量</span>
             </div>
+            <strong>
+              {Math.abs(budgetGap) >= 1000
+                ? `${Math.round(budgetGap / 1000)}K`
+                : budgetGap.toLocaleString("zh-CN")}
+            </strong>
+            <span className="hero-metric-unit">{budgetGap < 0 ? "OVER" : "LEFT"}</span>
+          </article>
+        </aside>
+      </section>
+
+      <section className="assistant-dock" id="service" aria-labelledby="assistant-dock-title">
+        <div className="assistant-dock-heading">
+          <span className="assistant-dock-icon" aria-hidden="true">
+            <Bot size={18} />
+          </span>
+          <div>
+            <h2 id="assistant-dock-title">今天，最想先解决哪件事？</h2>
+            <p>直接告诉喜缘，剩下的拆解、排期和检查清单会放进你们的备婚空间。</p>
           </div>
         </div>
 
-        <aside className="ai-console" aria-label="AI 备婚控制台">
-          <NextImage
-            className="console-backdrop"
-            src="/media-red-gold-film.webp"
-            alt="新人牵手走向红金中式婚礼仪式"
-            fill
-            sizes="(max-width: 980px) 100vw, 440px"
-          />
-          <div className="console-scrim" aria-hidden="true" />
-          <div className="console-content">
-            <h2>今天，先完成 {taskList.length} 件小事。</h2>
-            <p>不用一次想清整场婚礼。喜缘把下一步放在你面前，做完一件，再走一步。</p>
-            <div className="console-metrics">
-              <div>
-                <strong>{taskList.length}</strong>
-                <span>今日任务</span>
-              </div>
-              <div>
-                <strong>{taskProgress}%</strong>
-                <span>完成进度</span>
-              </div>
-              <div>
-                <strong>{totals.rate}%</strong>
-                <span>预算执行</span>
-              </div>
-            </div>
-            <button type="button" onClick={continuePlan}>
-              继续备婚计划
-              <ChevronRight size={19} aria-hidden="true" />
+        <div className="assistant-dock-controls">
+          <div className="mode-pills" aria-label="生成模式">
+            {(["文本", "图片", "视频"] as Mode[]).map((item) => (
+              <button
+                type="button"
+                className={mode === item ? "selected" : ""}
+                onClick={() => selectMode(item)}
+                key={item}
+              >
+                {item === "文本" && <CheckCircle2 size={15} aria-hidden="true" />}
+                {item === "图片" && <ImageIcon size={15} aria-hidden="true" />}
+                {item === "视频" && <Video size={15} aria-hidden="true" />}
+                {item}
+              </button>
+            ))}
+          </div>
+
+          <p className="notice-bar" aria-live="polite">
+            {notice}
+          </p>
+
+          <div className="prompt-row">
+            <label className="prompt-box">
+              <input
+                ref={promptRef}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") submitAssistantRequest();
+                }}
+                aria-label="告诉喜缘小助手你的备婚需求"
+              />
+              <button type="button" onClick={submitAssistantRequest} aria-label="让小助手处理需求">
+                <Send size={18} aria-hidden="true" />
+              </button>
+            </label>
+            <button type="button" className="config-button" onClick={configureService}>
+              <Settings size={18} aria-hidden="true" />
+              {aiConfigured ? "重新配置 AI 服务" : "配置 AI 服务"}
             </button>
           </div>
-        </aside>
+
+          <div className="assistant-matcher" aria-live="polite">
+            <div className="assistant-matcher-title">
+              <strong>喜缘小助手</strong>
+              <span>
+                {primaryAssistantMatch
+                  ? `匹配到：${primaryAssistantMatch.label}`
+                  : "常用入口"}
+              </span>
+            </div>
+            <div className="assistant-match-actions">
+              {(assistantMatches.length > 0
+                ? assistantMatches
+                : assistantIntents.filter((intent) =>
+                    ["plan", "budget", "guest", "seating", "command"].includes(intent.id),
+                  )
+              ).map((intent) => (
+                <button
+                  type="button"
+                  className={intent.id === primaryAssistantMatch?.id ? "is-primary" : ""}
+                  onClick={() =>
+                    runAssistantIntent(
+                      intent,
+                      assistantMatches.length > 0 ? prompt : intent.example,
+                    )
+                  }
+                  key={intent.id}
+                >
+                  <span>{intent.label}</span>
+                  <ChevronRight size={14} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="profile-panel panel" id="profile">
