@@ -199,6 +199,12 @@
 }
 
 .hero {
+  --hero-ink: #4c101b;
+  --hero-copy: #704038;
+  --hero-red: #7b1729;
+  --hero-red-dark: #430a15;
+  --hero-gold: #a97829;
+  --hero-gold-light: #f0d59d;
   position: relative;
   display: block;
   width: 100vw;
@@ -209,7 +215,7 @@
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: var(--halo-page);
+  background: #e8d3bf;
   box-shadow: none;
 }
 
@@ -224,7 +230,7 @@
   width: min(100vw, 200svh);
   height: 100%;
   overflow: hidden;
-  background: var(--halo-page);
+  background: #e8d3bf;
   transform: translateX(-50%);
 }
 
@@ -251,12 +257,12 @@
   z-index: 1;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(244, 239, 229, 0.78) 0%, rgba(244, 239, 229, 0.16) 15%, rgba(244, 239, 229, 0) 25%),
+    linear-gradient(180deg, rgba(249, 235, 219, 0.78) 0%, rgba(249, 235, 219, 0.16) 15%, rgba(249, 235, 219, 0) 25%),
     linear-gradient(
       90deg,
-      rgba(244, 239, 229, 0.98) 0%,
-      rgba(244, 239, 229, 0.88) 27%,
-      rgba(244, 239, 229, 0.22) 54%,
+      rgba(249, 235, 219, 0.98) 0%,
+      rgba(249, 235, 219, 0.9) 27%,
+      rgba(249, 235, 219, 0.22) 54%,
       rgba(36, 8, 14, 0.08) 100%
     ),
     linear-gradient(0deg, rgba(35, 8, 14, 0.22) 0%, rgba(35, 8, 14, 0) 34%);
@@ -273,7 +279,7 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--halo-ink);
+  color: var(--hero-ink);
   text-align: left;
   transform: translateY(-46%);
 }
@@ -283,7 +289,7 @@
   align-items: center;
   gap: calc(11 * var(--s));
   margin: 0 0 calc(28 * var(--s));
-  color: var(--halo-copy);
+  color: #7a3d33;
   font-family: var(--font-body);
   font-size: calc(20 * var(--s));
   font-weight: 500;
@@ -295,14 +301,14 @@
   width: calc(12 * var(--s));
   height: calc(12 * var(--s));
   border-radius: 50%;
-  background: var(--halo-accent);
+  background: var(--hero-gold);
 }
 
 .hero h1 {
   display: block;
   max-width: calc(640 * var(--s));
   margin: 0;
-  color: var(--halo-ink);
+  color: var(--hero-ink);
   font-family: var(--font-body);
   font-size: calc(69 * var(--s));
   font-weight: 500;
@@ -316,7 +322,7 @@
 
 .hero h1 .hero-headline-mask,
 .hero h1 .hero-headline-mask > span {
-  color: var(--halo-ink);
+  color: var(--hero-ink);
 }
 
 .hero-headline-mask {
@@ -333,7 +339,7 @@
 .hero-subtitle {
   max-width: calc(520 * var(--s));
   margin: calc(34 * var(--s)) 0 0;
-  color: var(--halo-copy);
+  color: var(--hero-copy);
   font-family: var(--font-body);
   font-size: calc(21 * var(--s));
   font-weight: 400;
@@ -352,8 +358,9 @@
   padding: 0 calc(26 * var(--s));
   border: 0;
   border-radius: 999px;
-  background: var(--halo-moss);
-  color: #f8f4e9;
+  border: 1px solid rgba(216, 177, 97, 0.52);
+  background: var(--hero-red);
+  color: #fff8e9;
   font-family: var(--font-body);
   font-size: calc(20 * var(--s));
   font-weight: 500;
@@ -365,7 +372,7 @@
 
 .hero-cta:hover,
 .hero-cta:focus-visible {
-  background: #0d2117;
+  background: var(--hero-red-dark);
   transform: translateY(-2px);
 }
 
@@ -387,10 +394,10 @@
   height: calc(160 * var(--s));
   min-height: 118px;
   padding: calc(20 * var(--s));
-  border: max(1px, calc(1 * var(--s))) solid rgba(43, 26, 25, 0.24);
+  border: max(1px, calc(1 * var(--s))) solid rgba(148, 95, 33, 0.34);
   border-radius: calc(20 * var(--s));
-  background: rgba(235, 238, 220, 0.42);
-  color: var(--halo-ink);
+  background: rgba(255, 239, 216, 0.5);
+  color: var(--hero-ink);
   backdrop-filter: blur(18px);
 }
 
@@ -398,7 +405,7 @@
   display: flex;
   align-items: center;
   gap: calc(9 * var(--s));
-  color: #79692d;
+  color: var(--hero-gold);
   font-family: var(--font-body);
   font-size: calc(16 * var(--s));
   font-weight: 600;
@@ -408,7 +415,7 @@
 .hero-metric-card strong {
   align-self: end;
   margin-top: calc(13 * var(--s));
-  color: var(--halo-ink);
+  color: var(--hero-ink);
   font-family: var(--font-body);
   font-size: calc(45 * var(--s));
   font-weight: 300;
@@ -419,7 +426,7 @@
 .hero-metric-unit {
   align-self: end;
   margin-top: calc(7 * var(--s));
-  color: #79692d;
+  color: var(--hero-gold);
   font-family: var(--font-body);
   font-size: calc(14 * var(--s));
   font-weight: 600;
@@ -798,9 +805,9 @@
     background:
       linear-gradient(
         180deg,
-        rgba(244, 239, 229, 0.98) 0%,
-        rgba(244, 239, 229, 0.93) 53%,
-        rgba(244, 239, 229, 0.2) 76%,
+        rgba(249, 235, 219, 0.98) 0%,
+        rgba(249, 235, 219, 0.93) 53%,
+        rgba(249, 235, 219, 0.2) 76%,
         rgba(36, 8, 14, 0.05) 100%
       );
   }
