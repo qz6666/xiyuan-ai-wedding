@@ -91,12 +91,57 @@ test("server-renders the Xiyuan wedding landing page", async () => {
   assert.match(html, /你的 AI 备婚搭子/);
   assert.match(html, /让备婚/);
   assert.match(html, /像婚礼般从容/);
-  assert.match(html, /今天，最想先解决哪件事/);
-  assert.match(html, /AI 服务已就绪/);
-  assert.match(html, /喜缘小助手/);
-  assert.match(html, /常用入口/);
-  assert.match(html, /告诉喜缘小助手你的备婚需求/);
-  assert.match(html, /每天一张备婚清单/);
+  assert.match(html, /<h3>备婚清单<\/h3>/);
+  assert.match(html, /备婚指标/);
+  assert.doesNotMatch(html, />ITEMS<|>DONE<|>LEFT<|>OVER</);
+  assert.match(html, /href="\/workspace\/plan"/);
+  assert.match(html, /href="\/workspace\/copywriting"/);
+  assert.match(html, /href="\/workspace\/media-studio"/);
+  assert.match(html, /href="\/workspace\/media-studio#photo-library"/);
+  assert.match(html, /href="\/wedding-story\/"/);
+  assert.doesNotMatch(html, /href="#(?:profile|plan|details|copywriting|media-studio|wedding-story|business|collaboration)"/);
+  assert.doesNotMatch(html, /<(?:iframe|input|textarea|select)\b/);
+  assert.doesNotMatch(html, /id="(?:service|profile|copywriting|media-studio|plan|budget|details|collaboration|business|guests|vendors|seating|wedding-command)"/);
+  assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
+});
+
+test("opens each wedding tool on its own page without the landing hero or unrelated forms", async () => {
+  const tools = [
+    ["service", "喜缘小助手", "今天，最想先解决哪件事", "service"],
+    ["profile", "新人资料", "新人资料配置", "profile"],
+    ["plan", "备婚计划", "每天能完成的小事", "plan"],
+    ["details", "阶段计划", "智能备婚阶段", "details"],
+    ["budget", "婚礼预算", "预算安心感", "budget"],
+    ["copywriting", "AI 文案", "AI 文案生成区", "copywriting"],
+    ["media-studio", "AI 影像", "AI 视觉与 3D 工作台", "media-studio"],
+    ["collaboration", "协助清单", "不再遗漏的协作清单", "collaboration"],
+    ["guests", "宾客名单", "生成邀请", "guests"],
+    ["vendors", "供应商管理", "合同与付款", "vendors"],
+    ["seating", "智能排桌", "一键智能排桌", "seating"],
+    ["timeline", "当天流程", "婚礼当天流程表", "timeline"],
+    ["wedding-command", "当天指挥", "婚礼当天指挥中心", "wedding-command"],
+    ["recycle-bin", "回收站", "回收站为空", "recycle-bin"],
+    ["account", "喜缘账号", "登录", "account-panel"],
+  ];
+  for (const [slug, title, content, id] of tools) {
+    const response = await request(`/workspace/${slug}`);
+    assert.equal(response.status, 200, slug);
+    const html = await response.text();
+    assert.ok(html.includes(`<title>${title} · 喜缘</title>`), `${slug} title`);
+    assert.ok(html.includes(content), `${slug} content`);
+    assert.ok(html.includes(`id="${id}"`), `${slug} tool`);
+    assert.match(html, /返回首页/);
+    assert.doesNotMatch(html, /class="hero"|id="capabilities"|<iframe\b/);
+    if (slug !== "media-studio") assert.doesNotMatch(html, /id="media-studio"/);
+    if (slug !== "guests") assert.doesNotMatch(html, /id="guests"/);
+    if (slug !== "copywriting") assert.doesNotMatch(html, /id="copywriting"/);
+  }
+});
+
+test("keeps AI image and video features available on the independent media page", async () => {
+  const response = await request("/workspace/media-studio");
+  assert.equal(response.status, 200);
+  const html = await response.text();
   assert.match(html, /AI 视觉与 3D 工作台/);
   assert.match(html, /场景效果图/);
   assert.match(html, /AI 证件照/);
@@ -109,19 +154,36 @@ test("server-renders the Xiyuan wedding landing page", async () => {
   assert.match(html, /AI 任务中心/);
   assert.match(html, /云端备婚资料/);
   assert.match(html, /完整素材库/);
-  assert.match(html, /生成邀请/);
-  assert.match(html, /批量发送/);
-  assert.match(html, /批量催办/);
-  assert.match(html, /智能排桌/);
-  assert.match(html, /婚礼当天指挥中心/);
-  assert.match(html, /合同与付款/);
-  assert.match(html, /回收站与撤销/);
   assert.match(html, /本次预估/);
   assert.match(html, /本月/);
   assert.match(html, /真实任务/);
   assert.match(html, /红金中式主舞台灵感/);
   assert.match(html, /我们要结婚了 · 30 秒预告/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
+});
+
+test("links business tools separately and handles invalid and restricted pages", async () => {
+  const response = await request("/workspace/business");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  for (const slug of ["guests", "vendors", "seating", "timeline", "wedding-command", "recycle-bin"]) {
+    assert.ok(html.includes(`href="/workspace/${slug}"`), slug);
+    assert.ok(!html.includes(`id="${slug}"`), `no embedded ${slug}`);
+  }
+  const invalid = await request("/workspace/not-a-wedding-tool");
+  assert.equal(invalid.status, 404);
+  const admin = await request("/workspace/admin");
+  const adminHtml = await admin.text();
+  assert.match(adminHtml, /请使用管理员账号登录/);
+  assert.doesNotMatch(adminHtml, /id="admin"/);
+});
+
+test("opens the story collector directly with a return link instead of an iframe", async () => {
+  const response = await request("/workspace/wedding-story");
+  assert.equal(response.status, 307);
+  assert.equal(new URL(response.headers.get("location"), "http://localhost").pathname, "/wedding-story/");
+  const story = await readFile(new URL("../public/wedding-story/index.html", import.meta.url), "utf8");
+  assert.match(story, /href="\/">返回喜缘首页/);
 });
 
 test("saves and restores a cloud workspace by sync code", async () => {

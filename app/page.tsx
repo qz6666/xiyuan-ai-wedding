@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function Home() {
-  return <WeddingPlanner />;
+  return <WeddingPlanner view="home" />;
 }

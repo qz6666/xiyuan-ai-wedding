@@ -63,8 +63,10 @@ import {
   X,
 } from "lucide-react";
 import NextImage from "next/image";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { WeddingStoryEmbed } from "./wedding-story-embed";
+import { inView } from "motion";
+import { animate } from "motion/mini";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { businessWeddingViews, isWeddingView, primaryWeddingViews, weddingPageHref, weddingPages, type WeddingView } from "./wedding-navigation";
 
 const WeddingScene3D = lazy(async () => ({
   default: (await import("./wedding-scene-3d")).WeddingScene3D,
@@ -1111,19 +1113,34 @@ const extraTasks = [
 
 const capabilityCards = [
   {
-    title: "每天一张备婚清单",
+    title: "备婚清单",
     text: "把大而乱的婚礼筹备拆成可执行的小事，完成感每天都看得见。",
     icon: ClipboardCheck,
+    image: "/media-red-gold-ceremony.webp",
+    imagePosition: "center",
+    imageScale: 1,
+    target: "plan",
+    action: "查看备婚清单",
   },
   {
-    title: "AI 文案与图片灵感",
-    text: "请柬、誓词、父母致辞、风格参考，都可以从一个想法开始生成。",
-    icon: Sparkles,
+    title: "婚礼故事",
+    text: "从相识到承诺，写下真实经历，边填写边生成可复制的婚礼故事卡。",
+    icon: Heart,
+    image: "/media-red-gold-film.webp",
+    imagePosition: "62% center",
+    imageScale: 1,
+    target: "wedding-story",
+    action: "填写婚礼故事",
   },
   {
-    title: "预算与进度提醒",
-    text: "关键节点、花费比例、待确认事项集中显示，减少遗漏和焦虑。",
-    icon: ShieldCheck,
+    title: "婚礼照片",
+    text: "上传、整理婚礼照片，也能生成现场布置效果图，把影像素材收在一处。",
+    icon: ImageIcon,
+    image: "/media-red-gold-wedding-photo.webp",
+    imagePosition: "center",
+    imageScale: 1,
+    target: "photo-library",
+    action: "整理婚礼照片",
   },
 ];
 
@@ -1474,6 +1491,13 @@ function getDaysUntil(dateValue: string) {
   return Math.ceil((weddingDate.getTime() - today.getTime()) / 86400000);
 }
 
+function getWeddingStatusLabel(daysUntil: number | null) {
+  if (daysUntil === null) return "婚期待确认";
+  if (daysUntil === 0) return "今天是婚礼日";
+  if (daysUntil > 0) return `距离婚礼 ${daysUntil} 天`;
+  return `婚礼已过 ${Math.abs(daysUntil)} 天`;
+}
+
 function getCurrentStageIndex(daysUntil: number | null) {
   if (daysUntil === null) return 0;
   if (daysUntil > 180) return 0;
@@ -1594,7 +1618,9 @@ function buildMediaAsset(
   };
 }
 
-export function WeddingPlanner() {
+export function WeddingPlanner({ view = "home" }: { view?: "home" | WeddingView }) {
+  const activePage = view === "home" ? null : weddingPages[view];
+  const [pendingDestination, setPendingDestination] = useState<string | null>(null);
   const [profile, setProfile] = useState(defaultProfile);
   const [prompt, setPrompt] = useState("帮我把备婚拆成每天能完成的小事");
   const [mode, setMode] = useState<Mode>("文本");
@@ -1651,9 +1677,8 @@ export function WeddingPlanner() {
   const [backupBusy, setBackupBusy] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
-  const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [heroPhotoReady, setHeroPhotoReady] = useState(false);
+  const [motionReplay, setMotionReplay] = useState(0);
   const [authMode, setAuthMode] = useState<AuthMode>("登录");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -1731,6 +1756,8 @@ export function WeddingPlanner() {
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [openTaskId, setOpenTaskId] = useState<number | null>(tasks[0]?.id ?? null);
   const pageRef = useRef<HTMLElement>(null);
+  const mobileNavToggleRef = useRef<HTMLButtonElement>(null);
+  const mobileNavRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLInputElement>(null);
   const portraitInputRef = useRef<HTMLInputElement>(null);
   const mediaUploadRef = useRef<HTMLInputElement>(null);
@@ -1738,6 +1765,9 @@ export function WeddingPlanner() {
   const cloudRevisionRef = useRef(0);
   const forceCloudOverwriteRef = useRef(false);
   const workspaceChannelRef = useRef<BroadcastChannel | null>(null);
+  const lastLocalSnapshotRef = useRef<string | null>(null);
+  const restoringCloudRef = useRef(false);
+  const navigationDraftReadyRef = useRef(false);
   const workspaceStorageKey = currentUser
     ? `${STORAGE_KEY}:user:${currentUser.id}`
     : STORAGE_KEY;
@@ -1816,7 +1846,43 @@ export function WeddingPlanner() {
   }, []);
 
   useEffect(() => {
-    if (!heroPhotoReady) return;
+    if (view !== "home") return;
+    const followLegacySection = () => {
+      const legacySection = window.location.hash.slice(1);
+      if (isWeddingView(legacySection)) window.location.replace(weddingPageHref(legacySection));
+    };
+    followLegacySection();
+    window.addEventListener("hashchange", followLegacySection);
+    return () => window.removeEventListener("hashchange", followLegacySection);
+  }, [view]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const firstItem = mobileNavRef.current?.querySelector<HTMLElement>("a, button");
+    window.requestAnimationFrame(() => firstItem?.focus());
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMobileNavOpen(false);
+      window.requestAnimationFrame(() => mobileNavToggleRef.current?.focus());
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    if (view === "home") return;
+    const activeTab = pageRef.current?.querySelector<HTMLElement>(
+      ".workspace-tabs [aria-current=\"page\"]",
+    );
+    const tabRow = activeTab?.parentElement;
+    if (!activeTab || !tabRow) return;
+    tabRow.scrollLeft = Math.max(0, activeTab.offsetLeft - 12);
+  }, [view]);
+
+  useEffect(() => {
+    if (view !== "home") return;
     const root = pageRef.current;
     if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
@@ -1829,7 +1895,7 @@ export function WeddingPlanner() {
       } catch {
         // The authored layout remains usable if the font set cannot be awaited.
       }
-      if (cancelled) return;
+      if (cancelled || !root) return;
 
       const headerItems = [
         root.querySelector(".top-nav .brand"),
@@ -1940,7 +2006,76 @@ export function WeddingPlanner() {
       cancelled = true;
       animations.forEach((animation) => animation.cancel());
     };
-  }, [heroPhotoReady]);
+  }, [view]);
+
+  useEffect(() => {
+    if (view !== "home") return;
+    const root = pageRef.current;
+    if (!root) return;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const controls = new Set<ReturnType<typeof animate>>();
+    const observers: (() => void)[] = [];
+    const ease = [0.22, 1, 0.36, 1] as const;
+
+    function play(
+      element: Element,
+      keyframes: Parameters<typeof animate>[1],
+      duration: number,
+      delay = 0,
+    ) {
+      const control = animate(element, keyframes, { duration, delay, ease });
+      controls.add(control);
+      void control.finished.then(() => {
+        control.cancel();
+        controls.delete(control);
+      });
+    }
+
+    function clearMotion() {
+      observers.splice(0).forEach((stop) => stop());
+      controls.forEach((control) => control.cancel());
+      controls.clear();
+    }
+
+    function startMotion() {
+      clearMotion();
+      if (preference.matches || !root) return;
+
+      const heading = root.querySelector(".capability-intro");
+      if (heading) observers.push(inView(heading, (element) => {
+        element.querySelectorAll("h2, p").forEach((line, index) => {
+          play(line, { opacity: [0, 1], transform: ["translateY(22px)", "translateY(0)"] }, 0.75, index * 0.09);
+        });
+      }, { amount: 0.4 }));
+
+      const compact = window.matchMedia("(max-width: 700px)").matches;
+      root.querySelectorAll(".capability-card").forEach((card, index) => {
+        observers.push(inView(card, (element) => {
+          const delay = compact ? 0 : index * 0.14;
+          play(element, {
+            opacity: [0, 1],
+            transform: ["translateY(32px)", "translateY(0)"],
+            clipPath: ["inset(0 0 84% 0 round 18px)", "inset(0 0 0% 0 round 18px)"],
+          }, 1.05, delay);
+          element.querySelectorAll(".capability-image-layer").forEach((layer, layerIndex) => {
+            play(layer, {
+              opacity: [0, 1],
+              transform: [`translateY(${42 - layerIndex * 12}px) scale(.92)`, "translateY(0) scale(1)"],
+            }, 0.95, delay + 0.15 + layerIndex * 0.1);
+          });
+          const image = element.querySelector(".capability-photo img");
+          if (image) play(image, { transform: ["scale(1.13)", "scale(1)"] }, 1.35, delay + 0.2);
+        }, { amount: 0.18 }));
+      });
+    }
+
+    startMotion();
+    preference.addEventListener("change", startMotion);
+    return () => {
+      clearMotion();
+      preference.removeEventListener("change", startMotion);
+    };
+  }, [motionReplay, view]);
 
   useEffect(() => {
     if (!authChecked || !currentUser) return;
@@ -2090,7 +2225,20 @@ export function WeddingPlanner() {
       aiConfigured,
     };
     try {
-      window.localStorage.setItem(workspaceStorageKey, JSON.stringify(workspace));
+      const serialized = JSON.stringify(workspace);
+      if (
+        !restoringCloudRef.current &&
+        lastLocalSnapshotRef.current !== null &&
+        lastLocalSnapshotRef.current !== serialized
+      ) {
+        window.localStorage.setItem(`${workspaceStorageKey}:pending-cloud`, JSON.stringify({
+          scope: workspaceScopeKey,
+          revision: cloudRevisionRef.current,
+        }));
+      }
+      window.localStorage.setItem(workspaceStorageKey, serialized);
+      lastLocalSnapshotRef.current = serialized;
+      restoringCloudRef.current = false;
     } catch {
       window.setTimeout(
         () =>
@@ -2119,7 +2267,61 @@ export function WeddingPlanner() {
     commandCenter,
     workspaceLoaded,
     workspaceStorageKey,
+    workspaceScopeKey,
   ]);
+
+  useEffect(() => {
+    if (!workspaceLoaded) {
+      navigationDraftReadyRef.current = false;
+      return;
+    }
+    try {
+      const saved = JSON.parse(window.sessionStorage.getItem("xiyuan-page-drafts") || "null");
+      if (!saved || saved.scope !== workspaceStorageKey) return;
+      if (copyKinds.includes(saved.copyKind)) setCopyKind(saved.copyKind);
+      if (copyTones.includes(saved.copyTone)) setCopyTone(saved.copyTone);
+      if (typeof saved.copyBrief === "string") setCopyBrief(saved.copyBrief);
+      if (["场景效果图", "AI 证件照", "视频分镜"].includes(saved.mediaKind)) setMediaKind(saved.mediaKind);
+      if (mediaStyles.includes(saved.mediaStyle)) setMediaStyle(saved.mediaStyle);
+      if (mediaRatios.includes(saved.mediaRatio)) setMediaRatio(saved.mediaRatio);
+      if (typeof saved.mediaBrief === "string") setMediaBrief(saved.mediaBrief);
+      setApiSettingsOpen(saved.apiSettingsOpen === true);
+    } catch {
+      // Invalid or unavailable session storage does not block a page.
+    } finally {
+      navigationDraftReadyRef.current = true;
+    }
+  }, [workspaceLoaded, workspaceStorageKey]);
+
+  useEffect(() => {
+    if (view !== "media-studio") return;
+    if (new URLSearchParams(window.location.search).get("kind") !== "portrait") return;
+    setMediaKind("AI 证件照");
+    setMediaRatio("9:16");
+  }, [view, workspaceLoaded]);
+
+  useEffect(() => {
+    if (view === "media-studio" && window.location.hash === "#photo-library") {
+      setMediaKindFilter("场景效果图");
+    }
+  }, [view, workspaceLoaded]);
+
+  useEffect(() => {
+    if (!pendingDestination) return;
+    if (new URL(pendingDestination, window.location.origin).href === window.location.href) {
+      setPendingDestination(null);
+      return;
+    }
+    try {
+      if (workspaceLoaded && navigationDraftReadyRef.current) window.sessionStorage.setItem("xiyuan-page-drafts", JSON.stringify({
+        scope: workspaceStorageKey,
+        copyKind, copyTone, copyBrief, mediaKind, mediaStyle, mediaRatio, mediaBrief, apiSettingsOpen,
+      }));
+    } catch {
+      // Native navigation remains available if draft storage is full.
+    }
+    window.location.assign(pendingDestination);
+  }, [pendingDestination, view, workspaceLoaded, workspaceStorageKey, copyKind, copyTone, copyBrief, mediaKind, mediaStyle, mediaRatio, mediaBrief, apiSettingsOpen]);
 
   useEffect(() => {
     mediaLibraryRef.current = mediaLibrary;
@@ -2320,7 +2522,23 @@ export function WeddingPlanner() {
         cloudRevisionRef.current = nextRevision;
         setCloudRevision(nextRevision);
         setCloudConflict(null);
-        if (result.data?.workspace) {
+        let pendingLocal: { scope?: string; revision?: number } | null = null;
+        try {
+          pendingLocal = JSON.parse(window.localStorage.getItem(`${workspaceStorageKey}:pending-cloud`) || "null");
+        } catch {
+          // A malformed marker cannot replace the saved workspace.
+        }
+        const hasLocalChanges = pendingLocal?.scope === workspaceScopeKey;
+        if (hasLocalChanges) {
+          if (nextRevision > (pendingLocal?.revision ?? 0)) {
+            setCloudConflict({ currentRevision: nextRevision, updatedAt: result.data?.updatedAt });
+            setCloudSyncStatus("同步冲突");
+            setNotice("已保留本机修改；云端也有更新，请在 AI 影像的同步设置中选择保留版本。");
+            return;
+          }
+          setNotice("已恢复本机最新修改，正在继续同步。");
+        } else if (result.data?.workspace) {
+          restoringCloudRef.current = true;
           applyWorkspace(result.data.workspace);
           if (result.data.usage) setMediaUsage(normalizeMediaUsage(result.data.usage));
           setCloudUpdatedAt(result.data.updatedAt || "");
@@ -2346,7 +2564,7 @@ export function WeddingPlanner() {
 
     void restoreCloudWorkspace();
     return () => controller.abort();
-  }, [applyWorkspace, authChecked, cloudReady, currentUser, syncCode, workspaceLoaded]);
+  }, [applyWorkspace, authChecked, cloudReady, currentUser, syncCode, workspaceLoaded, workspaceStorageKey, workspaceScopeKey]);
 
   useEffect(() => {
     if (!workspaceLoaded || !cloudReady || (!currentUser && !syncCode)) return;
@@ -2411,6 +2629,15 @@ export function WeddingPlanner() {
         const nextRevision = result.revision || cloudRevisionRef.current + 1;
         cloudRevisionRef.current = nextRevision;
         setCloudRevision(nextRevision);
+        try {
+          if (window.localStorage.getItem(workspaceStorageKey) === JSON.stringify(workspace)) {
+            window.localStorage.removeItem(`${workspaceStorageKey}:pending-cloud`);
+          } else {
+            window.localStorage.setItem(`${workspaceStorageKey}:pending-cloud`, JSON.stringify({ scope: workspaceScopeKey, revision: nextRevision }));
+          }
+        } catch {
+          // A storage failure must not turn a completed cloud save into an error.
+        }
         setCloudConflict(null);
         setCloudUpdatedAt(nextUpdatedAt);
         setCloudSyncStatus("已保存");
@@ -2451,6 +2678,7 @@ export function WeddingPlanner() {
     workspaceLoaded,
     workspaceScopeKey,
     currentUser,
+    workspaceStorageKey,
   ]);
 
   useEffect(() => {
@@ -2561,6 +2789,7 @@ export function WeddingPlanner() {
 
   const completedTasks = taskList.filter((task) => task.status === "已完成").length;
   const taskProgress = taskList.length > 0 ? Math.round((completedTasks / taskList.length) * 100) : 0;
+  const photoAssetCount = mediaLibrary.filter((asset) => asset.kind === "场景效果图").length;
   const completedCollaboration = collaborationList.filter((item) => item.done).length;
   const budgetGap = profile.budgetCap - totals.total;
   const settledBudgetCount = budgetList.filter((item) => item.status === "已结清").length;
@@ -2672,7 +2901,28 @@ export function WeddingPlanner() {
   }, [mediaJobFilter, mediaKindFilter, mediaLibrary, mediaSearch, mediaSort]);
 
   function scrollToSection(id: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const target = document.getElementById(id);
+    if (!target) {
+      setPendingDestination(weddingPageHref(id));
+      return;
+    }
+    target.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+  }
+
+  function handlePageLink(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!workspaceLoaded || !navigationDraftReadyRef.current) return;
+    try {
+      window.sessionStorage.setItem("xiyuan-page-drafts", JSON.stringify({
+        scope: workspaceStorageKey,
+        copyKind, copyTone, copyBrief, mediaKind, mediaStyle, mediaRatio, mediaBrief, apiSettingsOpen,
+      }));
+    } catch {
+      // Keep native links working even when the browser cannot store drafts.
+    }
   }
 
   function updateProfile(patch: Partial<CoupleProfile>) {
@@ -2733,7 +2983,6 @@ export function WeddingPlanner() {
       setAuthNewPassword("");
       setAuthCode("");
       setRegistrationConsent(false);
-      setAuthPanelOpen(false);
       setNotice(
         authMode === "验证邮箱"
           ? `邮箱验证成功，正在建立 ${result.user.displayName} 的独立备婚空间。`
@@ -2801,7 +3050,6 @@ export function WeddingPlanner() {
       setAccountLifecycle(null);
       setDeletionConfirmation("");
       setCurrentUser(null);
-      setAuthPanelOpen(false);
       setNotice("已退出账号，当前切换回本机同步码空间。");
     }
   }
@@ -3582,6 +3830,7 @@ export function WeddingPlanner() {
   }
 
   function reloadCloudWorkspace() {
+    try { window.localStorage.removeItem(`${workspaceStorageKey}:pending-cloud`); } catch { /* Keep reload usable without local storage. */ }
     cloudRevisionRef.current = 0;
     setCloudRevision(0);
     setCloudConflict(null);
@@ -3653,6 +3902,7 @@ export function WeddingPlanner() {
         throw new Error(result.error || "历史版本恢复失败。");
       }
       setBackupPanelOpen(false);
+      try { window.localStorage.removeItem(`${workspaceStorageKey}:pending-cloud`); } catch { /* The restored cloud version remains available. */ }
       cloudRevisionRef.current = 0;
       setCloudRevision(0);
       setCloudConflict(null);
@@ -5744,9 +5994,9 @@ export function WeddingPlanner() {
   }
 
   return (
-    <main className="xiyuan-page" ref={pageRef}>
+    <main className={`xiyuan-page${view === "home" ? "" : " workspace-page"}`} data-view={view} data-workspace-loaded={workspaceLoaded} data-cloud-ready={cloudReady} ref={pageRef}>
       <nav className="top-nav" aria-label="喜缘导航">
-        <div className="brand">
+        <a className="brand" href="/" onClick={handlePageLink} aria-label="返回喜缘首页">
           <span className="brand-mark">
             <NextImage
               src="/xiyuan-wedding-badge.svg"
@@ -5760,8 +6010,9 @@ export function WeddingPlanner() {
             <strong>喜缘</strong>
             <small>你的 AI 备婚搭子</small>
           </div>
-        </div>
+        </a>
         <button
+          ref={mobileNavToggleRef}
           type="button"
           className="nav-menu-toggle"
           onClick={() => setMobileNavOpen((current) => !current)}
@@ -5773,34 +6024,25 @@ export function WeddingPlanner() {
           {mobileNavOpen ? "收起" : "导航"}
         </button>
         <div
+          ref={mobileNavRef}
           className={`nav-actions${mobileNavOpen ? " is-open" : ""}`}
           id="primary-navigation"
         >
           <div className="nav-links" onClick={() => setMobileNavOpen(false)}>
-            <a href="#profile">新人资料</a>
-            <a href="#plan">备婚计划</a>
-            <a href="#details">阶段计划</a>
-            <a href="#copywriting">AI 文案</a>
-            <a href="#media-studio">AI 影像</a>
-            <a href="#wedding-story">婚礼故事</a>
-            <a href="#business">业务模块</a>
-            <a href="#collaboration">协助清单</a>
-            {currentUser?.isAdmin && <a href="#admin">运营后台</a>}
+            {primaryWeddingViews.map((item) => (
+              <a href={weddingPageHref(item)} onClick={handlePageLink} aria-current={view === item ? "page" : undefined} key={item}>{weddingPages[item].title}</a>
+            ))}
+            {currentUser?.isAdmin && <a href={weddingPageHref("admin")} onClick={handlePageLink}>运营后台</a>}
           </div>
           <div className="nav-command-group">
-            <button
-              type="button"
+            <a
+              href={weddingPageHref("account")}
               className="account-button"
-              onClick={() => {
-                setAuthPanelOpen((current) => !current);
-                setMobileNavOpen(false);
-              }}
-              aria-expanded={authPanelOpen}
-              aria-controls="account-panel"
+              onClick={handlePageLink}
             >
               <CircleUserRound size={17} aria-hidden="true" />
               {currentUser ? currentUser.displayName : "登录"}
-            </button>
+            </a>
             <button
               type="button"
               onClick={() => {
@@ -5814,7 +6056,27 @@ export function WeddingPlanner() {
         </div>
       </nav>
 
-      {authPanelOpen && (
+      {activePage && (
+        <header className="workspace-heading">
+          <a className="workspace-home-link" href="/" onClick={handlePageLink}>返回首页</a>
+          <h1>{activePage.title}</h1>
+          <p>{activePage.description}</p>
+          <nav className="workspace-tabs" aria-label="备婚工具导航">
+            {(["service", ...primaryWeddingViews, "budget"] as WeddingView[]).map((item) => (
+              <a href={weddingPageHref(item)} onClick={handlePageLink} aria-current={view === item ? "page" : undefined} key={item}>{weddingPages[item].title}</a>
+            ))}
+          </nav>
+          {businessWeddingViews.includes(view as WeddingView) && (
+            <nav className="workspace-tabs workspace-business-tabs" aria-label="婚礼业务导航">
+              <a href={weddingPageHref("business")} onClick={handlePageLink}>全部业务</a>
+              {businessWeddingViews.map((item) => <a href={weddingPageHref(item)} onClick={handlePageLink} aria-current={view === item ? "page" : undefined} key={item}>{weddingPages[item].title}</a>)}
+            </nav>
+          )}
+          <p className="workspace-notice" role="status">{notice}</p>
+        </header>
+      )}
+
+      {view === "account" && (
         <section className="auth-panel" id="account-panel" aria-label="喜缘账号">
           {currentUser ? (
             <>
@@ -6156,1971 +6418,2021 @@ export function WeddingPlanner() {
         </section>
       )}
 
-      <section className="hero">
-        <div className="hero-photo-frame" aria-hidden="true">
-          <NextImage
-            className="hero-photo"
-            src="/media-red-gold-film.webp"
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            onLoad={() => setHeroPhotoReady(true)}
-          />
-        </div>
-        <div className="hero-photo-scrim" aria-hidden="true" />
-
-        <div className="hero-copy">
-          <p className="hero-eyebrow">
-            <span className="hero-tracking-dot" data-hero-dot aria-hidden="true" />
-            <span data-hero-eyebrow>24/7 陪你们备婚</span>
-          </p>
-          <h1>
-            <span className="hero-headline-mask">
-              <span data-hero-headline>让备婚，</span>
-            </span>
-            <span className="hero-headline-mask">
-              <span data-hero-headline>像婚礼般从容。</span>
-            </span>
-          </h1>
-          <p className="hero-subtitle" data-hero-settle>
-            睡眠、预算、文案、影像与宾客安排，由喜缘持续整理成每天能完成的一小步。
-          </p>
-          <button type="button" className="hero-cta" onClick={startExperience} data-hero-settle>
-            开始今天的备婚
-            <ChevronRight size={17} aria-hidden="true" />
-          </button>
-        </div>
-
-        <aside className="hero-metrics" aria-label="今日备婚指标">
-          <article className="hero-metric-card" data-hero-card>
-            <div className="hero-metric-label">
-              <ListChecks size={16} aria-hidden="true" />
-              <span>今日任务</span>
-            </div>
-            <strong>{String(taskList.length).padStart(2, "0")}</strong>
-            <span className="hero-metric-unit">ITEMS</span>
-          </article>
-          <article className="hero-metric-card" data-hero-card>
-            <div className="hero-metric-label">
-              <Gauge size={16} aria-hidden="true" />
-              <span>完成进度</span>
-            </div>
-            <strong>{taskProgress}%</strong>
-            <span className="hero-metric-unit">DONE</span>
-          </article>
-          <article className="hero-metric-card" data-hero-card>
-            <div className="hero-metric-label">
-              <CircleDollarSign size={16} aria-hidden="true" />
-              <span>预算余量</span>
-            </div>
-            <strong>
-              {Math.abs(budgetGap) >= 1000
-                ? `${Math.round(budgetGap / 1000)}K`
-                : budgetGap.toLocaleString("zh-CN")}
-            </strong>
-            <span className="hero-metric-unit">{budgetGap < 0 ? "OVER" : "LEFT"}</span>
-          </article>
-        </aside>
-      </section>
-
-      <section className="assistant-dock" id="service" aria-labelledby="assistant-dock-title">
-        <div className="assistant-dock-inner">
-          <div className="assistant-dock-heading">
-            <span className="assistant-dock-icon" aria-hidden="true">
-              <Bot size={18} />
-            </span>
-            <div>
-              <h2 id="assistant-dock-title">今天，最想先解决哪件事？</h2>
-              <p>直接告诉喜缘，剩下的拆解、排期和检查清单会放进你们的备婚空间。</p>
-            </div>
+      {view === "home" && (
+        <section className="hero">
+          <div className="hero-photo-frame" aria-hidden="true">
+            <NextImage
+              className="hero-photo"
+              src="/media-red-gold-film.webp"
+              alt=""
+              fill
+              priority
+              sizes="100vw"
+            />
           </div>
+          <div className="hero-photo-scrim" aria-hidden="true" />
 
-          <div className="assistant-dock-controls">
-            <div className="mode-pills" aria-label="生成模式">
-              {(["文本", "图片", "视频"] as Mode[]).map((item) => (
-                <button
-                  type="button"
-                  className={mode === item ? "selected" : ""}
-                  onClick={() => selectMode(item)}
-                  key={item}
-                >
-                  {item === "文本" && <CheckCircle2 size={15} aria-hidden="true" />}
-                  {item === "图片" && <ImageIcon size={15} aria-hidden="true" />}
-                  {item === "视频" && <Video size={15} aria-hidden="true" />}
-                  {item}
-                </button>
-              ))}
-            </div>
-
-            <p className="notice-bar" aria-live="polite">
-              {notice}
+          <div className="hero-copy">
+            <p className="hero-eyebrow">
+              <span className="hero-tracking-dot" data-hero-dot aria-hidden="true" />
+            <span data-hero-eyebrow>{getWeddingStatusLabel(daysUntil)} · {profile.city}</span>
             </p>
-
-            <div className="prompt-row">
-              <label className="prompt-box">
-                <input
-                  ref={promptRef}
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") submitAssistantRequest();
-                  }}
-                  aria-label="告诉喜缘小助手你的备婚需求"
-                />
-                <button type="button" onClick={submitAssistantRequest} aria-label="让小助手处理需求">
-                  <Send size={18} aria-hidden="true" />
-                </button>
-              </label>
-              <button type="button" className="config-button" onClick={configureService}>
-                <Settings size={18} aria-hidden="true" />
-                {aiConfigured ? "重新配置 AI 服务" : "配置 AI 服务"}
-              </button>
-            </div>
-
-            <div className="assistant-matcher" aria-live="polite">
-              <div className="assistant-matcher-title">
-                <strong>喜缘小助手</strong>
-                <span>
-                  {primaryAssistantMatch
-                    ? `匹配到：${primaryAssistantMatch.label}`
-                    : "常用入口"}
-                </span>
-              </div>
-              <div className="assistant-match-actions">
-                {(assistantMatches.length > 0
-                  ? assistantMatches
-                  : assistantIntents.filter((intent) =>
-                      ["plan", "budget", "guest", "seating", "command"].includes(intent.id),
-                    )
-                ).map((intent) => (
-                  <button
-                    type="button"
-                    className={intent.id === primaryAssistantMatch?.id ? "is-primary" : ""}
-                    onClick={() =>
-                      runAssistantIntent(
-                        intent,
-                        assistantMatches.length > 0 ? prompt : intent.example,
-                      )
-                    }
-                    key={intent.id}
-                  >
-                    <span>{intent.label}</span>
-                    <ChevronRight size={14} aria-hidden="true" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="profile-panel panel" id="profile">
-        <div className="section-title">
-          <UsersRound size={19} aria-hidden="true" />
-          <h2>新人资料配置</h2>
-        </div>
-        <div className="profile-grid">
-          <label>
-            新娘
-            <input
-              value={profile.brideName}
-              onChange={(event) => updateProfile({ brideName: event.target.value })}
-            />
-          </label>
-          <label>
-            新郎
-            <input
-              value={profile.groomName}
-              onChange={(event) => updateProfile({ groomName: event.target.value })}
-            />
-          </label>
-          <label>
-            婚期
-            <input
-              type="date"
-              value={profile.weddingDate}
-              onChange={(event) => updateProfile({ weddingDate: event.target.value })}
-            />
-          </label>
-          <label>
-            城市
-            <input
-              value={profile.city}
-              onChange={(event) => updateProfile({ city: event.target.value })}
-            />
-          </label>
-          <label>
-            宾客人数
-            <input
-              type="number"
-              min={0}
-              value={profile.guestCount}
-              onChange={(event) => updateProfile({ guestCount: Number(event.target.value) })}
-            />
-          </label>
-          <label>
-            婚礼风格
-            <input
-              value={profile.style}
-              onChange={(event) => updateProfile({ style: event.target.value })}
-            />
-          </label>
-          <label>
-            预算上限
-            <input
-              type="number"
-              min={0}
-              value={profile.budgetCap}
-              onChange={(event) => updateProfile({ budgetCap: parseMoney(event.target.value) })}
-            />
-          </label>
-        </div>
-        <div className="profile-summary">
-          <span>
-            {profile.brideName} & {profile.groomName}
-          </span>
-          <span>{daysUntil === null ? "婚期待确认" : `距离婚礼 ${Math.max(daysUntil, 0)} 天`}</span>
-          <span className={budgetGap < 0 ? "over-budget" : ""}>
-            {budgetGap < 0 ? `已超预算 ${currency(Math.abs(budgetGap))}` : `剩余预算 ${currency(budgetGap)}`}
-          </span>
-        </div>
-        <div className="panel-actions export-actions">
-          <button type="button" className="ghost-action" onClick={exportWorkspace}>
-            <Download size={17} aria-hidden="true" />
-            导出备婚清单
-          </button>
-          <button type="button" className="subtle-action" onClick={exportPdf}>
-            <Printer size={17} aria-hidden="true" />
-            导出 PDF
-          </button>
-          <button type="button" className="subtle-action" onClick={exportExcel}>
-            <FileSpreadsheet size={17} aria-hidden="true" />
-            导出 Excel
-          </button>
-        </div>
-      </section>
-
-      <section className="capability-section" aria-labelledby="capability-title">
-        <div className="capability-intro">
-          <h2 id="capability-title">备婚不必靠熬夜和记忆。</h2>
-          <p>从计划、预算到文案与宾客，喜缘把散落的事情收进同一条时间线。</p>
-        </div>
-        <div className="capability-grid">
-          {capabilityCards.map((card) => (
-            <article className="capability-card" key={card.title}>
-              <h3>{card.title}</h3>
-              <p>{card.text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="copywriting-panel panel" id="copywriting">
-        <div className="section-title">
-          <Sparkles size={19} aria-hidden="true" />
-          <h2>AI 文案生成区</h2>
-        </div>
-        <div className="copywriting-controls">
-          <label>
-            文案类型
-            <select
-              value={copyKind}
-              onChange={(event) => setCopyKind(event.target.value as CopyKind)}
-            >
-              {copyKinds.map((kind) => (
-                <option key={kind}>{kind}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            语气风格
-            <select
-              value={copyTone}
-              onChange={(event) => setCopyTone(event.target.value as CopyTone)}
-            >
-              {copyTones.map((tone) => (
-                <option key={tone}>{tone}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            重点要求
-            <textarea
-              value={copyBrief}
-              onChange={(event) => setCopyBrief(event.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className="ghost-action"
-            onClick={() => void generateCopywriting()}
-            disabled={copyGenerating}
-          >
-            {copyGenerating ? (
-              <LoaderCircle className="spin" size={17} aria-hidden="true" />
-            ) : (
-              <Sparkles size={17} aria-hidden="true" />
-            )}
-            {copyGenerating ? "DeepSeek 生成中" : "DeepSeek 生成"}
-          </button>
-        </div>
-        <div className="copywriting-list">
-          {copywritingList.map((doc) => (
-            <article className="copywriting-card" key={doc.id}>
-              <div className="copywriting-meta">
-                <span>{doc.kind}</span>
-                <span>{doc.tone}</span>
-                {doc.model && <span>{doc.model}</span>}
-                <span>{doc.createdAt}</span>
-              </div>
-              <input
-                className="copywriting-title-input"
-                value={doc.title}
-                onChange={(event) => updateCopywriting(doc.id, { title: event.target.value })}
-                aria-label="文案标题"
-              />
-              <textarea
-                className="copywriting-content"
-                value={doc.content}
-                onChange={(event) => updateCopywriting(doc.id, { content: event.target.value })}
-                aria-label={`${doc.title}内容`}
-              />
-              <div className="copywriting-actions">
-                <button type="button" className="subtle-action" onClick={() => copyCopywriting(doc)}>
-                  <Copy size={16} aria-hidden="true" />
-                  复制
-                </button>
-                <button
-                  type="button"
-                  className="subtle-action"
-                  onClick={() => addCopywritingToTask(doc)}
-                >
-                  <Plus size={16} aria-hidden="true" />
-                  加入任务
-                </button>
-                <button
-                  type="button"
-                  className="delete-task"
-                  onClick={() => deleteCopywriting(doc.id)}
-                  aria-label={`删除${doc.title}`}
-                >
-                  <Trash2 size={15} aria-hidden="true" />
-                  <span>删除</span>
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="media-studio panel" id="media-studio">
-        <div className="media-studio-heading">
-          <div className="section-title">
-            <MonitorPlay size={20} aria-hidden="true" />
-            <div>
-              <h2>AI 视觉与 3D 工作台</h2>
-              <p>生成婚礼场景效果图、正式证件照和短视频，并实时查看 3D 空间布局。</p>
-            </div>
-          </div>
-          <div className="media-heading-actions">
-            <span
-              className={`media-service-status ${mediaService.copy.configured ? "ready" : "missing"}`}
-            >
-              DeepSeek {mediaService.copy.configured ? "已连接" : "待配置"}
-            </span>
-            <span
-              className={`media-service-status ${mediaService.image.configured ? "ready" : "missing"}`}
-            >
-              豆包图片 {mediaService.image.configured ? "已连接" : "待配置"}
-            </span>
-            <span
-              className={`media-service-status ${mediaService.video.configured ? "ready" : "missing"}`}
-            >
-              Seedance {mediaService.video.configured ? "已连接" : "待配置"}
-            </span>
-            <button
-              type="button"
-              onClick={() => setApiSettingsOpen((current) => !current)}
-              aria-expanded={apiSettingsOpen}
-              aria-controls="media-api-settings"
-            >
-              <KeyRound size={14} aria-hidden="true" />
-              API 接入
+            <h1>
+              <span className="hero-headline-mask">
+                <span data-hero-headline>让备婚，</span>
+              </span>
+              <span className="hero-headline-mask">
+                <span data-hero-headline>像婚礼般从容。</span>
+              </span>
+            </h1>
+            <p className="hero-subtitle" data-hero-settle>
+              计划、预算、文案、影像与宾客安排，由喜缘持续整理成每天能完成的一小步。
+            </p>
+            <button type="button" className="hero-cta" onClick={startExperience} data-hero-settle>
+              开始今天的备婚
+              <ChevronRight size={17} aria-hidden="true" />
             </button>
-            <span>{mediaLibrary.length} 个影像方案</span>
+            <a className="hero-explore" href="#capabilities" data-hero-settle>看看备婚空间<ChevronRight size={15} aria-hidden="true" /></a>
           </div>
-        </div>
 
-        <div className="cloud-sync-bar" aria-label="云端数据同步">
-          <div className="cloud-sync-summary">
-            {cloudSyncStatus === "已保存" || cloudSyncStatus === "保存中" ? (
-              <Cloud size={19} aria-hidden="true" />
-            ) : (
-              <CloudOff size={19} aria-hidden="true" />
-            )}
-            <div>
-              <strong>{currentUser ? `${currentUser.displayName} 的账号云端` : "云端备婚资料"}</strong>
-              <span className={`cloud-sync-status status-${cloudSyncStatus}`}>
-                {cloudSyncStatus}
-                {cloudUpdatedAt && cloudSyncStatus === "已保存"
-                  ? ` · ${new Date(cloudUpdatedAt).toLocaleTimeString("zh-CN", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })} · 版本 ${cloudRevision}`
-                  : ""}
-              </span>
-            </div>
+          <aside className="hero-metrics" aria-label="备婚指标">
+            <article className="hero-metric-card" data-hero-card>
+              <div className="hero-metric-label">
+                <ListChecks size={16} aria-hidden="true" />
+                <span>筹备任务</span>
+              </div>
+              <strong>{taskList.length}</strong>
+              <span className="hero-metric-unit">项</span>
+            </article>
+            <article className="hero-metric-card" data-hero-card>
+              <div className="hero-metric-label">
+                <Gauge size={16} aria-hidden="true" />
+                <span>完成进度</span>
+              </div>
+              <strong>{taskProgress}%</strong>
+              <span className="hero-metric-unit">完成</span>
+            </article>
+            <article className="hero-metric-card" data-hero-card>
+              <div className="hero-metric-label">
+                <CircleDollarSign size={16} aria-hidden="true" />
+                <span>预算余量</span>
+              </div>
+              <strong>{currency(Math.abs(budgetGap))}</strong>
+              <span className="hero-metric-unit">{budgetGap < 0 ? "超支" : "剩余"}</span>
+            </article>
+          </aside>
+        </section>
+      )}
+
+      {view === "home" && (
+        <section className="capability-section" id="capabilities" aria-labelledby="capability-title">
+          <div className="capability-intro">
+            <h2 id="capability-title">备婚不必靠熬夜和记忆。</h2>
+            <p>从备婚清单到婚礼故事与照片，把想法一步步变成看得见的婚礼。</p>
           </div>
-          {currentUser ? (
-            <div className="account-scope-note">
-              <ShieldCheck size={17} aria-hidden="true" />
-              <span>资料、素材与任务仅属于当前账号</span>
-              <button
-                type="button"
-                onClick={() => void loadWorkspaceBackups()}
-                disabled={backupBusy}
-              >
-                <History size={15} aria-hidden="true" />
-                历史版本
-              </button>
-            </div>
-          ) : (
-            <>
-              <label className="sync-code-field">
-                同步码
-                <input
-                  value={syncCodeDraft}
-                  onChange={(event) => setSyncCodeDraft(event.target.value)}
-                  spellCheck={false}
-                  aria-label="云端同步码"
-                />
-              </label>
-              <div className="cloud-sync-actions">
-                <button type="button" onClick={saveSyncCode} title="连接同步码">
-                  <Save size={15} aria-hidden="true" />
-                  连接
-                </button>
-                <button type="button" onClick={copySyncCode} title="复制同步码">
-                  <Copy size={15} aria-hidden="true" />
-                  复制
-                </button>
-                <button type="button" onClick={regenerateSyncCode} title="新建云端空间">
-                  <RefreshCw size={15} aria-hidden="true" />
-                  新空间
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void loadWorkspaceBackups()}
-                  disabled={backupBusy}
-                  title="查看历史版本"
-                >
-                  <History size={15} aria-hidden="true" />
-                  版本
-                </button>
-              </div>
-            </>
-          )}
-          {cloudConflict && (
-            <div className="cloud-conflict-actions" role="alert">
-              <span>
-                <TriangleAlert size={17} aria-hidden="true" />
-                云端已有更新，当前本机草稿尚未覆盖它。
-              </span>
-              <div>
-                <button type="button" onClick={reloadCloudWorkspace}>
-                  <RefreshCw size={15} aria-hidden="true" />
-                  载入云端
-                </button>
-                <button type="button" onClick={keepLocalWorkspace}>
-                  <Save size={15} aria-hidden="true" />
-                  保留本机
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {backupPanelOpen && (
-          <div className="workspace-backup-panel" aria-label="云端历史版本">
-            <div>
-              <span>
-                <History size={17} aria-hidden="true" />
-                <strong>云端历史版本</strong>
-              </span>
-              <small>最多保留 30 个版本，保留期 180 天</small>
-              <div className="workspace-backup-actions">
-                <button
-                  type="button"
-                  onClick={() => void createManualWorkspaceBackup()}
-                  disabled={backupBusy}
-                >
-                  <Save size={14} aria-hidden="true" />
-                  立即备份
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void downloadWorkspaceExport()}
-                  disabled={backupBusy}
-                >
-                  <Download size={14} aria-hidden="true" />
-                  下载资料
-                </button>
-              </div>
-            </div>
-            <div className="workspace-backup-list">
-              {workspaceBackups.map((backup) => (
-                <div key={backup.id}>
-                  <span>
-                    <strong>
-                      {backup.reason === "delete"
-                        ? "删除前版本"
-                        : backup.reason === "restore"
-                          ? "恢复前版本"
-                          : backup.reason === "manual"
-                            ? "手动备份"
-                            : "自动保存版本"}
-                    </strong>
-                    <small>
-                      {new Date(backup.createdAt).toLocaleString("zh-CN")}
-                    </small>
-                  </span>
-                  <code>{backup.checksum.slice(0, 10)}</code>
-                  <button
-                    type="button"
-                    onClick={() => void restoreWorkspaceVersion(backup.id)}
-                    disabled={backupBusy}
-                  >
-                    <RotateCcw size={14} aria-hidden="true" />
-                    恢复
-                  </button>
+          <div className="capability-grid">
+            {capabilityCards.map((card, index) => (
+              <article className={`capability-card capability-card-${index + 1}`} key={card.title}>
+                <div className="capability-card-copy">
+                  <div className="capability-card-topline">
+                    <h3>{card.title}</h3>
+                    <card.icon size={23} strokeWidth={1.3} aria-hidden="true" />
+                  </div>
+                  <p>{card.text}</p>
+                  <dl className="capability-stats">
+                    <div>
+                      <dt>{index === 0 ? "筹备任务" : index === 1 ? "故事章节" : "照片素材"}</dt>
+                      <dd>{index === 0 ? taskList.length : index === 1 ? 5 : photoAssetCount}<small>{index === 0 ? " 项" : index === 1 ? " 幕" : " 张"}</small></dd>
+                    </div>
+                    <div>
+                      <dt>{index === 0 ? "已完成" : index === 1 ? "故事卡" : "照片管理"}</dt>
+                      <dd>{index === 0 ? `${taskProgress}%` : index === 1 ? "随写随看" : "随时整理"}</dd>
+                    </div>
+                  </dl>
                 </div>
-              ))}
-              {workspaceBackups.length === 0 && (
-                <p>当前还没有历史版本。资料下一次发生变化时会自动保留。</p>
-              )}
-            </div>
-          </div>
-        )}
-
-        {apiSettingsOpen && (
-          <div className="media-api-settings" id="media-api-settings">
-            <div className="media-api-copy">
-              <KeyRound size={20} aria-hidden="true" />
-              <div>
-                <strong>多模型 AI 服务配置</strong>
-                <p>Key 仅保存在当前浏览器会话，关闭浏览器后自动清除，不会写入云端备婚资料。</p>
-              </div>
-            </div>
-            <div className="provider-settings-grid">
-              <div className="provider-settings-card">
-                <div className="provider-settings-title">
-                  <strong>DeepSeek 文案</strong>
-                  <span
-                    className={
-                      mediaService.copy.verified === false
-                        ? "missing"
-                        : mediaService.copy.configured
-                          ? "ready"
-                          : "missing"
-                    }
-                  >
-                    {mediaService.copy.verified === true
-                      ? "已验证"
-                      : mediaService.copy.verified === false
-                        ? "验证失败"
-                        : mediaService.copy.configured
-                          ? "已连接"
-                          : "待配置"}
-                  </span>
+                <div className="capability-picture" aria-hidden="true">
+                  <span className="capability-image-layer capability-image-back" />
+                  <span className="capability-image-layer capability-image-mid" />
+                  <div className="capability-image-layer capability-photo">
+                    <NextImage src={card.image} alt="" fill sizes="(max-width: 700px) 90vw, 32vw" style={{ objectPosition: card.imagePosition, scale: card.imageScale }} />
+                  </div>
                 </div>
-                <label className="api-key-field">
-                  DeepSeek API Key
-                  <span>
-                    <input
-                      type={showDeepSeekKey ? "text" : "password"}
-                      value={deepSeekKeyDraft}
-                      onChange={(event) => setDeepSeekKeyDraft(event.target.value)}
-                      placeholder="sk-..."
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowDeepSeekKey((current) => !current)}
-                      aria-label={showDeepSeekKey ? "隐藏 DeepSeek Key" : "显示 DeepSeek Key"}
-                      title={showDeepSeekKey ? "隐藏 DeepSeek Key" : "显示 DeepSeek Key"}
-                    >
-                      {showDeepSeekKey ? (
-                        <EyeOff size={17} aria-hidden="true" />
-                      ) : (
-                        <Eye size={17} aria-hidden="true" />
-                      )}
-                    </button>
-                  </span>
-                </label>
-                <label className="provider-model-field">
-                  文案模型
-                  <input
-                    value={deepSeekModelDraft}
-                    onChange={(event) => setDeepSeekModelDraft(event.target.value)}
-                    spellCheck={false}
-                  />
-                </label>
-                {mediaService.copy.verified === true && (
-                  <p className="provider-diagnostic">
-                    真实联调 {mediaService.copy.latencyMs || 0}ms
-                    {mediaService.copy.modelAvailable === false
-                      ? " · 当前账号未开放该模型"
-                      : " · 模型可用"}
-                  </p>
-                )}
-                {mediaService.copy.error && (
-                  <p className="provider-error">{mediaService.copy.error}</p>
-                )}
-              </div>
-
-              <div className="provider-settings-card">
-                <div className="provider-settings-title">
-                  <strong>火山方舟影像</strong>
-                  <span
-                    className={
-                      mediaService.image.verified === false
-                        ? "missing"
-                        : mediaService.image.configured
-                          ? "ready"
-                          : "missing"
-                    }
-                  >
-                    {mediaService.image.verified === true
-                      ? "已验证"
-                      : mediaService.image.verified === false
-                        ? "验证失败"
-                        : mediaService.image.configured
-                          ? "已连接"
-                          : "待配置"}
-                  </span>
-                </div>
-                <label className="api-key-field">
-                  Ark API Key
-                  <span>
-                    <input
-                      type={showArkKey ? "text" : "password"}
-                      value={arkKeyDraft}
-                      onChange={(event) => setArkKeyDraft(event.target.value)}
-                      placeholder="火山方舟 API Key"
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowArkKey((current) => !current)}
-                      aria-label={showArkKey ? "隐藏 Ark Key" : "显示 Ark Key"}
-                      title={showArkKey ? "隐藏 Ark Key" : "显示 Ark Key"}
-                    >
-                      {showArkKey ? (
-                        <EyeOff size={17} aria-hidden="true" />
-                      ) : (
-                        <Eye size={17} aria-hidden="true" />
-                      )}
-                    </button>
-                  </span>
-                </label>
-                <div className="provider-model-grid">
-                  <label className="provider-model-field">
-                    豆包图片模型
-                    <input
-                      value={arkImageModelDraft}
-                      onChange={(event) => setArkImageModelDraft(event.target.value)}
-                      spellCheck={false}
-                    />
-                  </label>
-                  <label className="provider-model-field">
-                    Seedance 视频模型
-                    <input
-                      value={arkVideoModelDraft}
-                      onChange={(event) => setArkVideoModelDraft(event.target.value)}
-                      spellCheck={false}
-                    />
-                  </label>
-                </div>
-                {mediaService.image.verified === true && (
-                  <p className="provider-diagnostic">
-                    真实联调 {mediaService.image.latencyMs || 0}ms
-                    {mediaService.image.modelAvailable === false ||
-                    mediaService.video.modelAvailable === false
-                      ? " · 请检查模型接入点"
-                      : " · 图片与视频通道可访问"}
-                  </p>
-                )}
-                {mediaService.image.error && (
-                  <p className="provider-error">{mediaService.image.error}</p>
-                )}
-              </div>
-            </div>
-            <div className="media-api-actions">
-              <button
-                type="button"
-                className="media-generate"
-                onClick={() => void saveBrowserApiKeys()}
-              >
-                <ShieldCheck size={16} aria-hidden="true" />
-                保存并验证
-              </button>
-              <button type="button" className="subtle-action" onClick={clearBrowserApiKeys}>
-                <Trash2 size={15} aria-hidden="true" />
-                清除全部
-              </button>
-              <button
-                type="button"
-                className="subtle-action"
-                onClick={() => void checkMediaService(true, undefined, true)}
-              >
-                <Settings size={15} aria-hidden="true" />
-                重新检查
-              </button>
-            </div>
-            <div className="media-cost-settings">
-              <div className="media-cost-settings-title">
-                <Calculator size={18} aria-hidden="true" />
-                <div>
-                  <strong>费用与额度控制</strong>
-                  <span>以下为本地预估，不代替 DeepSeek 或火山方舟账单。</span>
-                </div>
-              </div>
-              <label>
-                本月生成上限
-                <span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={mediaUsage.limit}
-                    onChange={(event) => updateMediaUsageLimit(event.target.value)}
-                  />
-                  <small>次</small>
-                </span>
-              </label>
-              <label>
-                月预算上限
-                <span>
-                  <small>¥</small>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={mediaUsage.monthlyBudgetCny}
-                    onChange={(event) =>
-                      updateMediaCostSetting("monthlyBudgetCny", event.target.value)
-                    }
-                  />
-                </span>
-              </label>
-              <label>
-                每张图片估算
-                <span>
-                  <small>¥</small>
-                  <input
-                    type="number"
-                    min={0.01}
-                    step={0.01}
-                    value={mediaUsage.imageEstimateCny}
-                    onChange={(event) =>
-                      updateMediaCostSetting("imageEstimateCny", event.target.value)
-                    }
-                  />
-                </span>
-              </label>
-              <label>
-                视频每秒估算
-                <span>
-                  <small>¥</small>
-                  <input
-                    type="number"
-                    min={0.01}
-                    step={0.01}
-                    value={mediaUsage.videoSecondEstimateCny}
-                    onChange={(event) =>
-                      updateMediaCostSetting("videoSecondEstimateCny", event.target.value)
-                    }
-                  />
-                </span>
-              </label>
-              <label>
-                视频时长
-                <select
-                  value={mediaUsage.videoSeconds}
-                  onChange={(event) =>
-                    updateMediaCostSetting("videoSeconds", event.target.value)
-                  }
-                >
-                  <option value={4}>4 秒</option>
-                  <option value={8}>8 秒</option>
-                  <option value={12}>12 秒</option>
-                </select>
-              </label>
-              <label className="hard-limit-toggle">
-                <input
-                  type="checkbox"
-                  checked={mediaUsage.hardLimit}
-                  onChange={(event) =>
-                    setMediaUsage((current) => ({
-                      ...current,
-                      hardLimit: event.target.checked,
-                    }))
-                  }
-                />
-                超出月预算时阻止生成
-              </label>
-            </div>
-          </div>
-        )}
-
-        <div className="media-workbench">
-          <div className="media-kind-switch" aria-label="影像生成类型">
-            {(["场景效果图", "AI 证件照", "视频分镜"] as MediaKind[]).map((kind) => (
-              <button
-                type="button"
-                className={mediaKind === kind ? "selected" : ""}
-                onClick={() => {
-                  setMediaKind(kind);
-                  if (kind === "视频分镜" && mediaRatio === "1:1") setMediaRatio("16:9");
-                  if (kind === "AI 证件照") setMediaRatio("9:16");
-                }}
-                key={kind}
-              >
-                {kind === "场景效果图" ? (
-                  <ImageIcon size={16} aria-hidden="true" />
-                ) : kind === "AI 证件照" ? (
-                  <Camera size={16} aria-hidden="true" />
-                ) : (
-                  <Video size={16} aria-hidden="true" />
-                )}
-                {kind}
-              </button>
+                <a className="capability-card-link" href={weddingPageHref(card.target)} onClick={handlePageLink}>
+                  {card.action}<ChevronRight size={16} aria-hidden="true" />
+                </a>
+              </article>
             ))}
           </div>
-
-          <div
-            className={`media-controls ${mediaKind === "AI 证件照" ? "portrait-mode" : ""}`}
-          >
-            <label>
-              视觉风格
-              <select
-                value={mediaStyle}
-                onChange={(event) => setMediaStyle(event.target.value as MediaStyle)}
-              >
-                {mediaStyles.map((style) => (
-                  <option key={style}>{style}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              画面比例
-              <select
-                value={mediaRatio}
-                onChange={(event) => setMediaRatio(event.target.value as MediaRatio)}
-              >
-                {mediaRatios
-                  .filter((ratio) =>
-                    mediaKind === "AI 证件照"
-                      ? ratio === "9:16"
-                      : mediaKind === "视频分镜"
-                        ? ratio !== "1:1"
-                        : true,
-                  )
-                  .map((ratio) => (
-                  <option key={ratio}>{ratio}</option>
-                  ))}
-              </select>
-            </label>
-            <label className="media-brief-field">
-              画面要求
-              <textarea
-                value={mediaBrief}
-                onChange={(event) => setMediaBrief(event.target.value)}
-                placeholder="例如：酒店宴会厅、暖金灯光、红色花艺、不要人物"
-              />
-            </label>
-            {mediaKind === "AI 证件照" && (
-              <div className="portrait-upload-field">
-                <span>本人正面照片</span>
-                <input
-                  ref={portraitInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  onChange={(event) => selectPortraitFile(event.target.files?.[0] || null)}
-                />
-                <button
-                  type="button"
-                  className="portrait-upload"
-                  onClick={() => portraitInputRef.current?.click()}
-                >
-                  {portraitPreview ? (
-                    <NextImage
-                      src={portraitPreview}
-                      alt="待处理证件照原图"
-                      width={44}
-                      height={44}
-                      unoptimized
-                    />
-                  ) : (
-                    <Upload size={18} aria-hidden="true" />
-                  )}
-                  <span>{portraitFile ? portraitFile.name : "选择 JPG、PNG 或 WebP"}</span>
-                </button>
-              </div>
-            )}
-            <button
-              type="button"
-              className="media-generate"
-              onClick={generateMediaAsset}
-              disabled={mediaGenerating}
-            >
-              <Sparkles size={17} aria-hidden="true" />
-              {mediaGenerating ? "生成中…" : `生成${mediaKind}`}
+          <div className="capability-section-footer">
+            <p>每一步，都离你们的婚礼更近一点。</p>
+            <button className="motion-replay" type="button" onClick={() => setMotionReplay((value) => value + 1)}>
+              <RotateCcw size={14} aria-hidden="true" />重播动效
             </button>
-            <span className="media-next-cost">
-              本次预估 ¥{nextMediaCost.toFixed(2)}
-              {mediaKind === "视频分镜" ? ` · ${mediaUsage.videoSeconds} 秒` : ""}
-            </span>
-          </div>
-        </div>
-
-        <Suspense
-          fallback={
-            <section className="scene-3d-band scene-3d-loading" aria-labelledby="scene-loading-title">
-              <div className="scene-3d-copy">
-                <span>实时空间方案</span>
-                <h3 id="scene-loading-title">3D 婚礼现场预览</h3>
-                <p>正在加载可旋转的婚礼空间…</p>
-              </div>
-              <LoaderCircle size={28} aria-hidden="true" />
-            </section>
-          }
-        >
-          <WeddingScene3D style={mediaStyle} />
-        </Suspense>
-
-        <section className="media-job-center" aria-labelledby="media-job-title">
-          <div className="media-job-heading">
-            <div>
-              <ListFilter size={19} aria-hidden="true" />
-              <div>
-                <h3 id="media-job-title">AI 任务中心</h3>
-                <p>统一查看生成状态、素材结果和本月调用次数。</p>
-              </div>
-            </div>
-            <div className="media-usage">
-              <Gauge size={16} aria-hidden="true" />
-              <div>
-                <span>
-                  本月 {mediaUsageTotal}/{mediaUsage.limit} 次
-                </span>
-                <meter min={0} max={100} value={mediaUsageRate} />
-              </div>
-              <div>
-                <span>
-                  预估 ¥{mediaUsage.estimatedSpendCny.toFixed(2)}/
-                  {mediaUsage.monthlyBudgetCny.toFixed(2)}
-                </span>
-                <meter min={0} max={100} value={mediaBudgetRate} />
-              </div>
-            </div>
-          </div>
-
-          <div className="media-job-stats">
-            <div>
-              <strong>{mediaJobStats.total}</strong>
-              <span>真实任务</span>
-            </div>
-            <div>
-              <strong>{mediaJobStats.active}</strong>
-              <span>处理中</span>
-            </div>
-            <div>
-              <strong>{mediaJobStats.completed}</strong>
-              <span>已完成</span>
-            </div>
-            <div>
-              <strong>{mediaJobStats.failed}</strong>
-              <span>失败/取消</span>
-            </div>
-          </div>
-
-          <div className="media-job-filters" aria-label="AI 任务筛选">
-            {mediaJobFilters.map((filter) => (
-              <button
-                type="button"
-                className={mediaJobFilter === filter ? "selected" : ""}
-                onClick={() => setMediaJobFilter(filter)}
-                aria-pressed={mediaJobFilter === filter}
-                key={filter}
-              >
-                {filter}
-              </button>
-            ))}
           </div>
         </section>
+      )}
 
-        <div className="media-library-toolbar">
-          <div className="media-library-heading">
-            <FolderOpen size={19} aria-hidden="true" />
-            <div>
-              <strong>完整素材库</strong>
-              <span>
-                {mediaLibrary.length} 个素材 · {formatStorageSize(mediaStorageTotal)}
+      {view === "service" && (
+        <section className="assistant-dock" id="service" aria-labelledby="assistant-dock-title">
+          <div className="assistant-dock-inner">
+            <div className="assistant-dock-heading">
+              <span className="assistant-dock-icon" aria-hidden="true">
+                <Bot size={18} />
               </span>
+              <div>
+                <h2 id="assistant-dock-title">今天，最想先解决哪件事？</h2>
+                <p>直接告诉喜缘，剩下的拆解、排期和检查清单会放进你们的备婚空间。</p>
+              </div>
             </div>
-          </div>
-          <label className="media-search-field">
-            <Search size={16} aria-hidden="true" />
-            <input
-              value={mediaSearch}
-              onChange={(event) => setMediaSearch(event.target.value)}
-              placeholder="搜索名称、风格或提示词"
-              aria-label="搜索素材"
-            />
-          </label>
-          <select
-            value={mediaKindFilter}
-            onChange={(event) => setMediaKindFilter(event.target.value as MediaKindFilter)}
-            aria-label="素材类型"
-          >
-            {mediaKindFilters.map((filter) => (
-              <option key={filter}>{filter}</option>
-            ))}
-          </select>
-          <select
-            value={mediaSort}
-            onChange={(event) => setMediaSort(event.target.value as MediaSort)}
-            aria-label="素材排序"
-          >
-            {mediaSortOptions.map((option) => (
-              <option key={option}>{option}</option>
-            ))}
-          </select>
-          <input
-            ref={mediaUploadRef}
-            type="file"
-            accept="image/webp,image/png,image/jpeg,video/mp4"
-            onChange={(event) => void importMediaFile(event.target.files?.[0] || null)}
-            hidden
-          />
-          <button type="button" onClick={() => mediaUploadRef.current?.click()}>
-            <Upload size={16} aria-hidden="true" />
-            上传素材
-          </button>
-        </div>
 
-        <div className="media-batch-bar">
-          <button type="button" onClick={toggleAllVisibleMedia}>
-            {filteredMediaLibrary.length > 0 &&
-            filteredMediaLibrary.every((asset) => selectedMediaIds.includes(asset.id)) ? (
-              <CheckSquare size={16} aria-hidden="true" />
-            ) : (
-              <Square size={16} aria-hidden="true" />
-            )}
-            选择当前结果
-          </button>
-          <span>已选择 {selectedMediaIds.length} 个</span>
-          <button
-            type="button"
-            onClick={downloadSelectedMedia}
-            disabled={selectedMediaIds.length === 0}
-          >
-            <Download size={16} aria-hidden="true" />
-            批量下载
-          </button>
-          <button
-            type="button"
-            className="danger-action"
-            onClick={() => void deleteSelectedMedia()}
-            disabled={selectedMediaIds.length === 0}
-          >
-            <Trash2 size={16} aria-hidden="true" />
-            批量删除
-          </button>
-        </div>
+            <div className="assistant-dock-controls">
+              <div className="mode-pills" aria-label="生成模式">
+                {(["文本", "图片", "视频"] as Mode[]).map((item) => (
+                  <button
+                    type="button"
+                    className={mode === item ? "selected" : ""}
+                    onClick={() => selectMode(item)}
+                    key={item}
+                  >
+                    {item === "文本" && <CheckCircle2 size={15} aria-hidden="true" />}
+                    {item === "图片" && <ImageIcon size={15} aria-hidden="true" />}
+                    {item === "视频" && <Video size={15} aria-hidden="true" />}
+                    {item}
+                  </button>
+                ))}
+              </div>
 
-        <div className="media-library">
-          {filteredMediaLibrary.map((asset) => (
-            <article
-              className={`media-card ${selectedMediaIds.includes(asset.id) ? "selected" : ""}`}
-              key={asset.id}
-            >
-              <div className={`media-preview ratio-${asset.ratio.replace(":", "-")}`}>
-                {asset.kind === "视频分镜" && asset.status === "completed" ? (
-                  <video
-                    src={asset.assetPath}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    aria-label={`${asset.title}视频`}
+              <p className="notice-bar" aria-live="polite">
+                {notice}
+              </p>
+
+              <div className="prompt-row">
+                <label className="prompt-box">
+                  <input
+                    ref={promptRef}
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") submitAssistantRequest();
+                    }}
+                    aria-label="告诉喜缘小助手你的备婚需求"
                   />
-                ) : (
-                  <NextImage
-                    src={asset.assetPath}
-                    alt={`${asset.title}预览`}
-                    fill
-                    unoptimized
-                    sizes="(max-width: 640px) 100vw, (max-width: 980px) 50vw, 560px"
-                  />
-                )}
-                <div className="media-preview-top">
-                  <span>{asset.kind}</span>
-                  <span>{asset.ratio}</span>
-                  <span className={`generation-status ${asset.status}`}>
-                    {mediaStatusLabel(asset)}
-                  </span>
-                </div>
-                {asset.kind === "视频分镜" && asset.status === "template" && (
-                  <span className="media-play" aria-hidden="true">
-                    <Play size={24} fill="currentColor" />
-                  </span>
-                )}
-                {(asset.status === "queued" || asset.status === "in_progress") && (
-                  <div className="media-progress-overlay" role="status">
-                    <LoaderCircle size={28} aria-hidden="true" />
-                    <strong>{asset.status === "queued" ? "等待生成" : "视频生成中"}</strong>
-                    <span>{Math.round(asset.progress)}%</span>
-                    <meter min={0} max={100} value={asset.progress} />
-                  </div>
-                )}
-                {asset.status === "failed" && (
-                  <div className="media-progress-overlay failed" role="status">
-                    <strong>生成失败</strong>
-                    <span>{asset.error || "请调整画面要求后重试"}</span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="media-select"
-                  onClick={() => toggleMediaSelection(asset.id)}
-                  aria-label={selectedMediaIds.includes(asset.id) ? `取消选择${asset.title}` : `选择${asset.title}`}
-                  aria-pressed={selectedMediaIds.includes(asset.id)}
-                  title={selectedMediaIds.includes(asset.id) ? "取消选择" : "选择素材"}
-                >
-                  {selectedMediaIds.includes(asset.id) ? (
-                    <CheckSquare size={18} aria-hidden="true" />
-                  ) : (
-                    <Square size={18} aria-hidden="true" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className={`media-favorite ${asset.favorite ? "selected" : ""}`}
-                  onClick={() => toggleMediaFavorite(asset.id)}
-                  aria-label={asset.favorite ? `取消收藏${asset.title}` : `收藏${asset.title}`}
-                  aria-pressed={asset.favorite}
-                  title={asset.favorite ? "取消收藏" : "收藏"}
-                >
-                  <Heart size={17} fill={asset.favorite ? "currentColor" : "none"} aria-hidden="true" />
+                  <button type="button" onClick={submitAssistantRequest} aria-label="让小助手处理需求">
+                    <Send size={18} aria-hidden="true" />
+                  </button>
+                </label>
+                <button type="button" className="config-button" onClick={configureService}>
+                  <Settings size={18} aria-hidden="true" />
+                  {aiConfigured ? "重新配置 AI 服务" : "配置 AI 服务"}
                 </button>
               </div>
 
-              <div className="media-card-body">
-                <div className="media-card-title">
-                  <div>
-                    <span>{asset.style}</span>
-                    {editingAssetId === asset.id ? (
-                      <span className="media-title-editor">
-                        <input
-                          value={assetTitleDraft}
-                          onChange={(event) => setAssetTitleDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") saveMediaTitle(asset.id);
-                            if (event.key === "Escape") setEditingAssetId(null);
-                          }}
-                          aria-label="素材名称"
-                          autoFocus
-                        />
-                        <button
-                          type="button"
-                          onClick={() => saveMediaTitle(asset.id)}
-                          aria-label="保存素材名称"
-                          title="保存名称"
-                        >
-                          <Save size={15} aria-hidden="true" />
-                        </button>
-                      </span>
-                    ) : (
-                      <span className="media-title-display">
-                        <h3>{asset.title}</h3>
-                        <button
-                          type="button"
-                          onClick={() => startRenameMedia(asset)}
-                          aria-label={`重命名${asset.title}`}
-                          title="重命名"
-                        >
-                          <Settings size={14} aria-hidden="true" />
-                        </button>
-                      </span>
-                    )}
-                  </div>
-                  <small>{asset.createdAt}</small>
+              <div className="assistant-matcher" aria-live="polite">
+                <div className="assistant-matcher-title">
+                  <strong>喜缘小助手</strong>
+                  <span>
+                    {primaryAssistantMatch
+                      ? `匹配到：${primaryAssistantMatch.label}`
+                      : "常用入口"}
+                  </span>
                 </div>
-                <div className="media-asset-meta">
-                  <span>{asset.model || "未知来源"}</span>
-                  <span>{formatStorageSize(asset.sizeBytes)}</span>
-                  <span>预估 ¥{(asset.estimatedCostCny || 0).toFixed(2)}</span>
-                  <span>{asset.storageKey ? "云端素材" : "本机素材"}</span>
-                </div>
-                <p className="media-prompt">{asset.prompt}</p>
-
-                {asset.frames.length > 0 && (
-                  <ol className="storyboard-list">
-                    {asset.frames.map((frame) => (
-                      <li key={frame}>{frame}</li>
-                    ))}
-                  </ol>
-                )}
-
-                <div className="media-actions">
-                  {(asset.status === "queued" || asset.status === "in_progress") && (
-                    <>
-                      <button
-                        type="button"
-                        className="subtle-action"
-                        onClick={() => void refreshVideoAsset(asset)}
-                      >
-                        <RefreshCw size={15} aria-hidden="true" />
-                        刷新进度
-                      </button>
-                      <button
-                        type="button"
-                        className="delete-task"
-                        onClick={() => void cancelMediaJob(asset)}
-                      >
-                        <Trash2 size={15} aria-hidden="true" />
-                        取消任务
-                      </button>
-                    </>
-                  )}
-                  {(asset.status === "failed" || asset.status === "cancelled") && (
+                <div className="assistant-match-actions">
+                  {(assistantMatches.length > 0
+                    ? assistantMatches
+                    : assistantIntents.filter((intent) =>
+                        ["plan", "budget", "guest", "seating", "command"].includes(intent.id),
+                      )
+                  ).map((intent) => (
                     <button
                       type="button"
-                      className="subtle-action"
-                      onClick={() => prepareMediaRetry(asset)}
+                      className={intent.id === primaryAssistantMatch?.id ? "is-primary" : ""}
+                      onClick={() =>
+                        runAssistantIntent(
+                          intent,
+                          assistantMatches.length > 0 ? prompt : intent.example,
+                        )
+                      }
+                      key={intent.id}
                     >
-                      <RefreshCw size={15} aria-hidden="true" />
-                      重新设置
+                      <span>{intent.label}</span>
+                      <ChevronRight size={14} aria-hidden="true" />
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="subtle-action"
-                    onClick={() => copyMediaPrompt(asset)}
-                  >
-                    <Copy size={15} aria-hidden="true" />
-                    复制提示词
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {view === "profile" && (
+        <section className="profile-panel panel" id="profile">
+          <div className="section-title">
+            <UsersRound size={19} aria-hidden="true" />
+            <h2>新人资料配置</h2>
+          </div>
+          <div className="profile-grid">
+            <label>
+              新娘
+              <input
+                value={profile.brideName}
+                onChange={(event) => updateProfile({ brideName: event.target.value })}
+              />
+            </label>
+            <label>
+              新郎
+              <input
+                value={profile.groomName}
+                onChange={(event) => updateProfile({ groomName: event.target.value })}
+              />
+            </label>
+            <label>
+              婚期
+              <input
+                type="date"
+                value={profile.weddingDate}
+                onChange={(event) => updateProfile({ weddingDate: event.target.value })}
+              />
+            </label>
+            <label>
+              城市
+              <input
+                value={profile.city}
+                onChange={(event) => updateProfile({ city: event.target.value })}
+              />
+            </label>
+            <label>
+              宾客人数
+              <input
+                type="number"
+                min={0}
+                value={profile.guestCount}
+                onChange={(event) => updateProfile({ guestCount: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              婚礼风格
+              <input
+                value={profile.style}
+                onChange={(event) => updateProfile({ style: event.target.value })}
+              />
+            </label>
+            <label>
+              预算上限
+              <input
+                type="number"
+                min={0}
+                value={profile.budgetCap}
+                onChange={(event) => updateProfile({ budgetCap: parseMoney(event.target.value) })}
+              />
+            </label>
+          </div>
+          <div className="profile-summary">
+            <span>
+              {profile.brideName} & {profile.groomName}
+            </span>
+            <span>{getWeddingStatusLabel(daysUntil)}</span>
+            <span className={budgetGap < 0 ? "over-budget" : ""}>
+              {budgetGap < 0 ? `已超预算 ${currency(Math.abs(budgetGap))}` : `剩余预算 ${currency(budgetGap)}`}
+            </span>
+          </div>
+          <div className="panel-actions export-actions">
+            <button type="button" className="ghost-action" onClick={exportWorkspace}>
+              <Download size={17} aria-hidden="true" />
+              导出备婚清单
+            </button>
+            <button type="button" className="subtle-action" onClick={exportPdf}>
+              <Printer size={17} aria-hidden="true" />
+              导出 PDF
+            </button>
+            <button type="button" className="subtle-action" onClick={exportExcel}>
+              <FileSpreadsheet size={17} aria-hidden="true" />
+              导出 Excel
+            </button>
+          </div>
+        </section>
+      )}
+
+      {view === "copywriting" && (
+        <section className="copywriting-panel panel" id="copywriting">
+          <div className="section-title">
+            <Sparkles size={19} aria-hidden="true" />
+            <h2>AI 文案生成区</h2>
+          </div>
+          <div className="copywriting-controls">
+            <label>
+              文案类型
+              <select
+                value={copyKind}
+                onChange={(event) => setCopyKind(event.target.value as CopyKind)}
+              >
+                {copyKinds.map((kind) => (
+                  <option key={kind}>{kind}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              语气风格
+              <select
+                value={copyTone}
+                onChange={(event) => setCopyTone(event.target.value as CopyTone)}
+              >
+                {copyTones.map((tone) => (
+                  <option key={tone}>{tone}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              重点要求
+              <textarea
+                value={copyBrief}
+                onChange={(event) => setCopyBrief(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="ghost-action"
+              onClick={() => void generateCopywriting()}
+              disabled={copyGenerating}
+            >
+              {copyGenerating ? (
+                <LoaderCircle className="spin" size={17} aria-hidden="true" />
+              ) : (
+                <Sparkles size={17} aria-hidden="true" />
+              )}
+              {copyGenerating ? "DeepSeek 生成中" : "DeepSeek 生成"}
+            </button>
+          </div>
+          <div className="copywriting-list">
+            {copywritingList.map((doc) => (
+              <article className="copywriting-card" key={doc.id}>
+                <div className="copywriting-meta">
+                  <span>{doc.kind}</span>
+                  <span>{doc.tone}</span>
+                  {doc.model && <span>{doc.model}</span>}
+                  <span>{doc.createdAt}</span>
+                </div>
+                <input
+                  className="copywriting-title-input"
+                  value={doc.title}
+                  onChange={(event) => updateCopywriting(doc.id, { title: event.target.value })}
+                  aria-label="文案标题"
+                />
+                <textarea
+                  className="copywriting-content"
+                  value={doc.content}
+                  onChange={(event) => updateCopywriting(doc.id, { content: event.target.value })}
+                  aria-label={`${doc.title}内容`}
+                />
+                <div className="copywriting-actions">
+                  <button type="button" className="subtle-action" onClick={() => copyCopywriting(doc)}>
+                    <Copy size={16} aria-hidden="true" />
+                    复制
                   </button>
                   <button
                     type="button"
                     className="subtle-action"
-                    onClick={() => downloadMediaAsset(asset)}
-                    disabled={
-                      asset.status === "queued" ||
-                      asset.status === "in_progress" ||
-                      asset.status === "failed" ||
-                      asset.status === "cancelled"
-                    }
+                    onClick={() => addCopywritingToTask(doc)}
                   >
-                    <Download size={15} aria-hidden="true" />
-                    {asset.kind === "视频分镜" && asset.status === "completed"
-                      ? "下载视频"
-                      : asset.kind === "视频分镜"
-                        ? "下载分镜"
-                        : "下载图片"}
-                  </button>
-                  <button
-                    type="button"
-                    className="subtle-action"
-                    onClick={() => addMediaToTask(asset)}
-                  >
-                    <Plus size={15} aria-hidden="true" />
+                    <Plus size={16} aria-hidden="true" />
                     加入任务
                   </button>
                   <button
                     type="button"
                     className="delete-task"
-                    onClick={() => void deleteMediaAsset(asset.id)}
-                    aria-label={`删除${asset.title}`}
+                    onClick={() => deleteCopywriting(doc.id)}
+                    aria-label={`删除${doc.title}`}
                   >
                     <Trash2 size={15} aria-hidden="true" />
                     <span>删除</span>
                   </button>
                 </div>
-              </div>
-            </article>
-          ))}
-          {filteredMediaLibrary.length === 0 && (
-            <div className="media-empty-state">
-              <ListFilter size={22} aria-hidden="true" />
-              <strong>当前筛选没有任务</strong>
-              <span>切换到“全部”查看示例素材与生成结果。</span>
-              <button type="button" onClick={() => setMediaJobFilter("全部")}>
-                查看全部
-              </button>
-            </div>
-          )}
-        </div>
-
-        <p className="media-footnote">
-          <HeartHandshake size={16} aria-hidden="true" />
-          文案由 {mediaService.copy.model} 生成；场景效果图和证件照由 {mediaService.image.model} 生成；视频由 {mediaService.video.model} 异步渲染。3D 预览在本机实时运行，不消耗 API 额度。
-        </p>
-      </section>
-
-      <WeddingStoryEmbed />
-
-      <section className="planner-grid" id="plan">
-        <article className="panel task-panel">
-          <div className="section-title">
-            <ClipboardCheck size={19} aria-hidden="true" />
-            <h2>每天能完成的小事</h2>
+              </article>
+            ))}
           </div>
-          <div className="task-list">
-            {taskList.map((task) => (
-              <div className="task-row" key={task.id}>
+        </section>
+      )}
+
+      {view === "media-studio" && (
+        <section className="media-studio panel" id="media-studio">
+          <div className="media-studio-heading">
+            <div className="section-title">
+              <MonitorPlay size={20} aria-hidden="true" />
+              <div>
+                <h2>AI 视觉与 3D 工作台</h2>
+                <p>生成婚礼场景效果图、正式证件照和短视频，并实时查看 3D 空间布局。</p>
+              </div>
+            </div>
+            <div className="media-heading-actions">
+              <span
+                className={`media-service-status ${mediaService.copy.configured ? "ready" : "missing"}`}
+              >
+                DeepSeek {mediaService.copy.configured ? "已连接" : "待配置"}
+              </span>
+              <span
+                className={`media-service-status ${mediaService.image.configured ? "ready" : "missing"}`}
+              >
+                豆包图片 {mediaService.image.configured ? "已连接" : "待配置"}
+              </span>
+              <span
+                className={`media-service-status ${mediaService.video.configured ? "ready" : "missing"}`}
+              >
+                Seedance {mediaService.video.configured ? "已连接" : "待配置"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setApiSettingsOpen((current) => !current)}
+                aria-expanded={apiSettingsOpen}
+                aria-controls="media-api-settings"
+              >
+                <KeyRound size={14} aria-hidden="true" />
+                API 接入
+              </button>
+              <span>{mediaLibrary.length} 个影像方案</span>
+            </div>
+          </div>
+
+          <div className="cloud-sync-bar" aria-label="云端数据同步">
+            <div className="cloud-sync-summary">
+              {cloudSyncStatus === "已保存" || cloudSyncStatus === "保存中" ? (
+                <Cloud size={19} aria-hidden="true" />
+              ) : (
+                <CloudOff size={19} aria-hidden="true" />
+              )}
+              <div>
+                <strong>{currentUser ? `${currentUser.displayName} 的账号云端` : "云端备婚资料"}</strong>
+                <span className={`cloud-sync-status status-${cloudSyncStatus}`}>
+                  {cloudSyncStatus}
+                  {cloudUpdatedAt && cloudSyncStatus === "已保存"
+                    ? ` · ${new Date(cloudUpdatedAt).toLocaleTimeString("zh-CN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })} · 版本 ${cloudRevision}`
+                    : ""}
+                </span>
+              </div>
+            </div>
+            {currentUser ? (
+              <div className="account-scope-note">
+                <ShieldCheck size={17} aria-hidden="true" />
+                <span>资料、素材与任务仅属于当前账号</span>
                 <button
                   type="button"
-                  className={`task-icon task-toggle ${statusClass(task.status).replace("status ", "")}`}
-                  onClick={() => cycleTaskStatus(task.id)}
-                  aria-label={`切换${task.title}状态`}
+                  onClick={() => void loadWorkspaceBackups()}
+                  disabled={backupBusy}
                 >
-                  <CheckCircle2 size={18} aria-hidden="true" />
+                  <History size={15} aria-hidden="true" />
+                  历史版本
                 </button>
-                <div className="task-copy">
+              </div>
+            ) : (
+              <>
+                <label className="sync-code-field">
+                  同步码
                   <input
-                    className="task-title-input"
-                    value={task.title}
-                    onChange={(event) => updateTask(task.id, { title: event.target.value })}
-                    aria-label="任务标题"
+                    value={syncCodeDraft}
+                    onChange={(event) => setSyncCodeDraft(event.target.value)}
+                    spellCheck={false}
+                    aria-label="云端同步码"
                   />
-                  <input
-                    className="task-stage-input"
-                    value={task.stage}
-                    onChange={(event) => updateTask(task.id, { stage: event.target.value })}
-                    aria-label="任务阶段"
-                  />
-                </div>
-                <div className="task-actions">
-                  <select
-                    className={statusClass(task.status)}
-                    value={task.status}
-                    onChange={(event) =>
-                      updateTask(task.id, { status: event.target.value as TaskStatus })
-                    }
-                    aria-label="任务状态"
-                  >
-                    {taskStatuses.map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="subtle-action task-detail-toggle"
-                    onClick={() => setOpenTaskId(openTaskId === task.id ? null : task.id)}
-                  >
-                    详情
+                </label>
+                <div className="cloud-sync-actions">
+                  <button type="button" onClick={saveSyncCode} title="连接同步码">
+                    <Save size={15} aria-hidden="true" />
+                    连接
+                  </button>
+                  <button type="button" onClick={copySyncCode} title="复制同步码">
+                    <Copy size={15} aria-hidden="true" />
+                    复制
+                  </button>
+                  <button type="button" onClick={regenerateSyncCode} title="新建云端空间">
+                    <RefreshCw size={15} aria-hidden="true" />
+                    新空间
                   </button>
                   <button
                     type="button"
-                    className="delete-task"
-                    onClick={() => deleteTask(task.id)}
-                    aria-label={`删除${task.title}`}
+                    onClick={() => void loadWorkspaceBackups()}
+                    disabled={backupBusy}
+                    title="查看历史版本"
                   >
-                    <Trash2 size={15} aria-hidden="true" />
-                    <span>删除</span>
+                    <History size={15} aria-hidden="true" />
+                    版本
                   </button>
                 </div>
-                {openTaskId === task.id && (
-                  <div className="task-detail">
-                    <label>
-                      负责人
-                      <input
-                        value={task.assignee}
-                        onChange={(event) => updateTask(task.id, { assignee: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      截止日期
-                      <input
-                        type="date"
-                        value={task.dueDate}
-                        onChange={(event) => updateTask(task.id, { dueDate: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      备注
-                      <textarea
-                        value={task.notes}
-                        onChange={(event) => updateTask(task.id, { notes: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      确认标准
-                      <textarea
-                        value={task.criteria}
-                        onChange={(event) => updateTask(task.id, { criteria: event.target.value })}
-                      />
-                    </label>
+              </>
+            )}
+            {cloudConflict && (
+              <div className="cloud-conflict-actions" role="alert">
+                <span>
+                  <TriangleAlert size={17} aria-hidden="true" />
+                  云端已有更新，当前本机草稿尚未覆盖它。
+                </span>
+                <div>
+                  <button type="button" onClick={reloadCloudWorkspace}>
+                    <RefreshCw size={15} aria-hidden="true" />
+                    载入云端
+                  </button>
+                  <button type="button" onClick={keepLocalWorkspace}>
+                    <Save size={15} aria-hidden="true" />
+                    保留本机
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {backupPanelOpen && (
+            <div className="workspace-backup-panel" aria-label="云端历史版本">
+              <div>
+                <span>
+                  <History size={17} aria-hidden="true" />
+                  <strong>云端历史版本</strong>
+                </span>
+                <small>最多保留 30 个版本，保留期 180 天</small>
+                <div className="workspace-backup-actions">
+                  <button
+                    type="button"
+                    onClick={() => void createManualWorkspaceBackup()}
+                    disabled={backupBusy}
+                  >
+                    <Save size={14} aria-hidden="true" />
+                    立即备份
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void downloadWorkspaceExport()}
+                    disabled={backupBusy}
+                  >
+                    <Download size={14} aria-hidden="true" />
+                    下载资料
+                  </button>
+                </div>
+              </div>
+              <div className="workspace-backup-list">
+                {workspaceBackups.map((backup) => (
+                  <div key={backup.id}>
+                    <span>
+                      <strong>
+                        {backup.reason === "delete"
+                          ? "删除前版本"
+                          : backup.reason === "restore"
+                            ? "恢复前版本"
+                            : backup.reason === "manual"
+                              ? "手动备份"
+                              : "自动保存版本"}
+                      </strong>
+                      <small>
+                        {new Date(backup.createdAt).toLocaleString("zh-CN")}
+                      </small>
+                    </span>
+                    <code>{backup.checksum.slice(0, 10)}</code>
+                    <button
+                      type="button"
+                      onClick={() => void restoreWorkspaceVersion(backup.id)}
+                      disabled={backupBusy}
+                    >
+                      <RotateCcw size={14} aria-hidden="true" />
+                      恢复
+                    </button>
                   </div>
+                ))}
+                {workspaceBackups.length === 0 && (
+                  <p>当前还没有历史版本。资料下一次发生变化时会自动保留。</p>
                 )}
               </div>
-            ))}
-          </div>
-          <div className="panel-actions">
-            <button type="button" className="ghost-action" onClick={() => addTodayTask()}>
-              <Plus size={17} aria-hidden="true" />
-              新增今日小事
-            </button>
-            <button type="button" className="subtle-action" onClick={() => resetWorkspace()}>
-              <RotateCcw size={16} aria-hidden="true" />
-              重置
-            </button>
-          </div>
-        </article>
-
-        <article className="panel ai-panel">
-          <div className="section-title">
-            <Bot size={19} aria-hidden="true" />
-            <h2>AI 陪伴建议</h2>
-          </div>
-          <ol className="ai-result">
-            {draft.map((item) => (
-              <li key={item}>
-                <span>{item}</span>
-                <button type="button" className="inline-action" onClick={() => addTodayTask(item)}>
-                  加入任务
-                </button>
-              </li>
-            ))}
-          </ol>
-        </article>
-
-        <article className="panel" id="budget">
-          <div className="section-title">
-            <CircleDollarSign size={19} aria-hidden="true" />
-            <h2>预算安心感</h2>
-          </div>
-          <strong className="big-number">{currency(totals.total)}</strong>
-          <p className={`muted ${budgetGap < 0 ? "over-budget" : ""}`}>
-            已支付 {currency(totals.paid)} · 当前执行 {totals.rate}% ·
-            {budgetGap < 0 ? ` 超预算 ${currency(Math.abs(budgetGap))}` : ` 预算余量 ${currency(budgetGap)}`}
-          </p>
-          <p className="budget-summary">
-            已结清 {settledBudgetCount}/{budgetList.length} 项，预算超过上限时会自动标红提醒。
-          </p>
-          <div className="budget-bars">
-            {budgetList.map((item) => (
-              <div className={`budget-row ${item.status === "已结清" ? "settled" : ""}`} key={item.id}>
-                <div className="budget-editor">
-                  <input
-                    value={item.name}
-                    onChange={(event) => updateBudgetItem(item.id, { name: event.target.value })}
-                    aria-label="预算名称"
-                  />
-                  <label>
-                    总预算
-                    <input
-                      type="number"
-                      min={0}
-                      value={item.total}
-                      onChange={(event) =>
-                        updateBudgetItem(item.id, { total: parseMoney(event.target.value) })
-                      }
-                      aria-label={`${item.name}总预算`}
-                    />
-                  </label>
-                  <label>
-                    已支付
-                    <input
-                      type="number"
-                      min={0}
-                      max={item.total}
-                      value={item.paid}
-                      onChange={(event) =>
-                        updateBudgetItem(item.id, { paid: parseMoney(event.target.value) })
-                      }
-                      aria-label={`${item.name}已支付`}
-                    />
-                  </label>
-                  <label>
-                    状态
-                    <select
-                      className={budgetStatusClass(item.status)}
-                      value={item.status}
-                      onChange={(event) =>
-                        updateBudgetItem(item.id, { status: event.target.value as BudgetStatus })
-                      }
-                      aria-label={`${item.name}付款状态`}
-                    >
-                      {budgetStatuses.map((status) => (
-                        <option key={status}>{status}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="delete-task"
-                    onClick={() => deleteBudgetItem(item.id)}
-                    aria-label={`删除${item.name}`}
-                  >
-                    <Trash2 size={15} aria-hidden="true" />
-                    <span>删除</span>
-                  </button>
-                </div>
-                <meter min={0} max={Math.max(item.total, 1)} value={item.paid} />
-              </div>
-            ))}
-          </div>
-          <button type="button" className="ghost-action budget-action" onClick={addBudgetItem}>
-            <Plus size={17} aria-hidden="true" />
-            添加预算
-          </button>
-        </article>
-
-        <article className="panel timeline-panel" id="details">
-          <div className="section-title">
-            <CalendarDays size={19} aria-hidden="true" />
-            <h2>智能备婚阶段</h2>
-          </div>
-          <div className="phase-list">
-            {stagePlan.map((stage, index) => (
-              <div className={`phase-card ${statusClass(stage.status).replace("status ", "")}`} key={stage.title}>
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <div>
-                  <strong>{stage.title}</strong>
-                  <small>{stage.window}</small>
-                </div>
-                <em>{stage.status}</em>
-              </div>
-            ))}
-          </div>
-          <button type="button" className="ghost-action" onClick={applyStageTasks}>
-            <ListChecks size={17} aria-hidden="true" />
-            生成阶段任务
-          </button>
-        </article>
-
-        <article className="panel wide-panel" id="collaboration">
-          <div className="section-title">
-            <UsersRound size={19} aria-hidden="true" />
-            <h2>不再遗漏的协作清单</h2>
-          </div>
-          <p className="muted">
-            已完成 {completedCollaboration}/{collaborationList.length} 项，点击即可切换。
-          </p>
-          <div className="feature-strip">
-            {collaborationList.map((item) => (
-              <button
-                type="button"
-                className={item.done ? "checked" : ""}
-                onClick={() => toggleCollaboration(item.id)}
-                key={item.id}
-              >
-                <CheckCircle2 size={15} aria-hidden="true" />
-                {item.title}
-              </button>
-            ))}
-          </div>
-          {!currentUser ? (
-            <div className="team-login-prompt">
-              <ShieldCheck size={19} aria-hidden="true" />
-              <div>
-                <strong>登录后启用多人协作</strong>
-                <span>成员权限、通知记录和套餐额度都会绑定到独立婚礼空间。</span>
-              </div>
-              <button
-                type="button"
-                className="subtle-action"
-                onClick={() => setAuthPanelOpen(true)}
-              >
-                登录账号
-              </button>
             </div>
-          ) : (
-            <div className="team-hub" aria-label="多人协作中心">
-              {teamOverview && !teamOverview.canWrite && (
-                <div className="team-readonly-banner" role="status">
-                  <ShieldCheck size={18} aria-hidden="true" />
-                  <div>
-                    <strong>当前为只读空间</strong>
-                    <span>你可以查看备婚资料、预算和素材，修改与 AI 生成操作已由系统拦截。</span>
-                  </div>
+          )}
+
+          {apiSettingsOpen && (
+            <div className="media-api-settings" id="media-api-settings">
+              <div className="media-api-copy">
+                <KeyRound size={20} aria-hidden="true" />
+                <div>
+                  <strong>多模型 AI 服务配置</strong>
+                  <p>Key 仅保存在当前浏览器会话，关闭浏览器后自动清除，不会写入云端备婚资料。</p>
                 </div>
-              )}
-              <section className="team-module">
-                <div className="team-module-title">
-                  <UserCog size={18} aria-hidden="true" />
-                  <div>
-                    <strong>空间成员</strong>
-                    <span>
-                      {teamLoading
-                        ? "正在读取"
-                        : `${teamOverview?.members.length || 1} 位成员 · ${
-                            teamOverview ? teamRoleLabel(teamOverview.role) : "读取中"
-                          }`}
+              </div>
+              <div className="provider-settings-grid">
+                <div className="provider-settings-card">
+                  <div className="provider-settings-title">
+                    <strong>DeepSeek 文案</strong>
+                    <span
+                      className={
+                        mediaService.copy.verified === false
+                          ? "missing"
+                          : mediaService.copy.configured
+                            ? "ready"
+                            : "missing"
+                      }
+                    >
+                      {mediaService.copy.verified === true
+                        ? "已验证"
+                        : mediaService.copy.verified === false
+                          ? "验证失败"
+                          : mediaService.copy.configured
+                            ? "已连接"
+                            : "待配置"}
                     </span>
                   </div>
+                  <label className="api-key-field">
+                    DeepSeek API Key
+                    <span>
+                      <input
+                        type={showDeepSeekKey ? "text" : "password"}
+                        value={deepSeekKeyDraft}
+                        onChange={(event) => setDeepSeekKeyDraft(event.target.value)}
+                        placeholder="sk-..."
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowDeepSeekKey((current) => !current)}
+                        aria-label={showDeepSeekKey ? "隐藏 DeepSeek Key" : "显示 DeepSeek Key"}
+                        title={showDeepSeekKey ? "隐藏 DeepSeek Key" : "显示 DeepSeek Key"}
+                      >
+                        {showDeepSeekKey ? (
+                          <EyeOff size={17} aria-hidden="true" />
+                        ) : (
+                          <Eye size={17} aria-hidden="true" />
+                        )}
+                      </button>
+                    </span>
+                  </label>
+                  <label className="provider-model-field">
+                    文案模型
+                    <input
+                      value={deepSeekModelDraft}
+                      onChange={(event) => setDeepSeekModelDraft(event.target.value)}
+                      spellCheck={false}
+                    />
+                  </label>
+                  {mediaService.copy.verified === true && (
+                    <p className="provider-diagnostic">
+                      真实联调 {mediaService.copy.latencyMs || 0}ms
+                      {mediaService.copy.modelAvailable === false
+                        ? " · 当前账号未开放该模型"
+                        : " · 模型可用"}
+                    </p>
+                  )}
+                  {mediaService.copy.error && (
+                    <p className="provider-error">{mediaService.copy.error}</p>
+                  )}
                 </div>
-                <div className="team-member-list">
-                  {teamOverview?.members.map((member) => (
-                    <div className="team-member-row" key={member.userId}>
-                      <span className="team-avatar">
-                        {member.displayName.slice(0, 1)}
-                      </span>
-                      <div>
-                        <strong>{member.displayName}</strong>
-                        <small>{member.email}</small>
+
+                <div className="provider-settings-card">
+                  <div className="provider-settings-title">
+                    <strong>火山方舟影像</strong>
+                    <span
+                      className={
+                        mediaService.image.verified === false
+                          ? "missing"
+                          : mediaService.image.configured
+                            ? "ready"
+                            : "missing"
+                      }
+                    >
+                      {mediaService.image.verified === true
+                        ? "已验证"
+                        : mediaService.image.verified === false
+                          ? "验证失败"
+                          : mediaService.image.configured
+                            ? "已连接"
+                            : "待配置"}
+                    </span>
+                  </div>
+                  <label className="api-key-field">
+                    Ark API Key
+                    <span>
+                      <input
+                        type={showArkKey ? "text" : "password"}
+                        value={arkKeyDraft}
+                        onChange={(event) => setArkKeyDraft(event.target.value)}
+                        placeholder="火山方舟 API Key"
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowArkKey((current) => !current)}
+                        aria-label={showArkKey ? "隐藏 Ark Key" : "显示 Ark Key"}
+                        title={showArkKey ? "隐藏 Ark Key" : "显示 Ark Key"}
+                      >
+                        {showArkKey ? (
+                          <EyeOff size={17} aria-hidden="true" />
+                        ) : (
+                          <Eye size={17} aria-hidden="true" />
+                        )}
+                      </button>
+                    </span>
+                  </label>
+                  <div className="provider-model-grid">
+                    <label className="provider-model-field">
+                      豆包图片模型
+                      <input
+                        value={arkImageModelDraft}
+                        onChange={(event) => setArkImageModelDraft(event.target.value)}
+                        spellCheck={false}
+                      />
+                    </label>
+                    <label className="provider-model-field">
+                      Seedance 视频模型
+                      <input
+                        value={arkVideoModelDraft}
+                        onChange={(event) => setArkVideoModelDraft(event.target.value)}
+                        spellCheck={false}
+                      />
+                    </label>
+                  </div>
+                  {mediaService.image.verified === true && (
+                    <p className="provider-diagnostic">
+                      真实联调 {mediaService.image.latencyMs || 0}ms
+                      {mediaService.image.modelAvailable === false ||
+                      mediaService.video.modelAvailable === false
+                        ? " · 请检查模型接入点"
+                        : " · 图片与视频通道可访问"}
+                    </p>
+                  )}
+                  {mediaService.image.error && (
+                    <p className="provider-error">{mediaService.image.error}</p>
+                  )}
+                </div>
+              </div>
+              <div className="media-api-actions">
+                <button
+                  type="button"
+                  className="media-generate"
+                  onClick={() => void saveBrowserApiKeys()}
+                >
+                  <ShieldCheck size={16} aria-hidden="true" />
+                  保存并验证
+                </button>
+                <button type="button" className="subtle-action" onClick={clearBrowserApiKeys}>
+                  <Trash2 size={15} aria-hidden="true" />
+                  清除全部
+                </button>
+                <button
+                  type="button"
+                  className="subtle-action"
+                  onClick={() => void checkMediaService(true, undefined, true)}
+                >
+                  <Settings size={15} aria-hidden="true" />
+                  重新检查
+                </button>
+              </div>
+              <div className="media-cost-settings">
+                <div className="media-cost-settings-title">
+                  <Calculator size={18} aria-hidden="true" />
+                  <div>
+                    <strong>费用与额度控制</strong>
+                    <span>以下为本地预估，不代替 DeepSeek 或火山方舟账单。</span>
+                  </div>
+                </div>
+                <label>
+                  本月生成上限
+                  <span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={mediaUsage.limit}
+                      onChange={(event) => updateMediaUsageLimit(event.target.value)}
+                    />
+                    <small>次</small>
+                  </span>
+                </label>
+                <label>
+                  月预算上限
+                  <span>
+                    <small>¥</small>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={mediaUsage.monthlyBudgetCny}
+                      onChange={(event) =>
+                        updateMediaCostSetting("monthlyBudgetCny", event.target.value)
+                      }
+                    />
+                  </span>
+                </label>
+                <label>
+                  每张图片估算
+                  <span>
+                    <small>¥</small>
+                    <input
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      value={mediaUsage.imageEstimateCny}
+                      onChange={(event) =>
+                        updateMediaCostSetting("imageEstimateCny", event.target.value)
+                      }
+                    />
+                  </span>
+                </label>
+                <label>
+                  视频每秒估算
+                  <span>
+                    <small>¥</small>
+                    <input
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      value={mediaUsage.videoSecondEstimateCny}
+                      onChange={(event) =>
+                        updateMediaCostSetting("videoSecondEstimateCny", event.target.value)
+                      }
+                    />
+                  </span>
+                </label>
+                <label>
+                  视频时长
+                  <select
+                    value={mediaUsage.videoSeconds}
+                    onChange={(event) =>
+                      updateMediaCostSetting("videoSeconds", event.target.value)
+                    }
+                  >
+                    <option value={4}>4 秒</option>
+                    <option value={8}>8 秒</option>
+                    <option value={12}>12 秒</option>
+                  </select>
+                </label>
+                <label className="hard-limit-toggle">
+                  <input
+                    type="checkbox"
+                    checked={mediaUsage.hardLimit}
+                    onChange={(event) =>
+                      setMediaUsage((current) => ({
+                        ...current,
+                        hardLimit: event.target.checked,
+                      }))
+                    }
+                  />
+                  超出月预算时阻止生成
+                </label>
+              </div>
+            </div>
+          )}
+
+          <div className="media-workbench">
+            <div className="media-kind-switch" aria-label="影像生成类型">
+              {(["场景效果图", "AI 证件照", "视频分镜"] as MediaKind[]).map((kind) => (
+                <button
+                  type="button"
+                  className={mediaKind === kind ? "selected" : ""}
+                  onClick={() => {
+                    setMediaKind(kind);
+                    if (kind === "视频分镜" && mediaRatio === "1:1") setMediaRatio("16:9");
+                    if (kind === "AI 证件照") setMediaRatio("9:16");
+                  }}
+                  key={kind}
+                >
+                  {kind === "场景效果图" ? (
+                    <ImageIcon size={16} aria-hidden="true" />
+                  ) : kind === "AI 证件照" ? (
+                    <Camera size={16} aria-hidden="true" />
+                  ) : (
+                    <Video size={16} aria-hidden="true" />
+                  )}
+                  {kind}
+                </button>
+              ))}
+            </div>
+
+            <div
+              className={`media-controls ${mediaKind === "AI 证件照" ? "portrait-mode" : ""}`}
+            >
+              <label>
+                视觉风格
+                <select
+                  value={mediaStyle}
+                  onChange={(event) => setMediaStyle(event.target.value as MediaStyle)}
+                >
+                  {mediaStyles.map((style) => (
+                    <option key={style}>{style}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                画面比例
+                <select
+                  value={mediaRatio}
+                  onChange={(event) => setMediaRatio(event.target.value as MediaRatio)}
+                >
+                  {mediaRatios
+                    .filter((ratio) =>
+                      mediaKind === "AI 证件照"
+                        ? ratio === "9:16"
+                        : mediaKind === "视频分镜"
+                          ? ratio !== "1:1"
+                          : true,
+                    )
+                    .map((ratio) => (
+                    <option key={ratio}>{ratio}</option>
+                    ))}
+                </select>
+              </label>
+              <label className="media-brief-field">
+                画面要求
+                <textarea
+                  value={mediaBrief}
+                  onChange={(event) => setMediaBrief(event.target.value)}
+                  placeholder="例如：酒店宴会厅、暖金灯光、红色花艺、不要人物"
+                />
+              </label>
+              {mediaKind === "AI 证件照" && (
+                <div className="portrait-upload-field">
+                  <span>本人正面照片</span>
+                  <input
+                    ref={portraitInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(event) => selectPortraitFile(event.target.files?.[0] || null)}
+                  />
+                  <button
+                    type="button"
+                    className="portrait-upload"
+                    onClick={() => portraitInputRef.current?.click()}
+                  >
+                    {portraitPreview ? (
+                      <NextImage
+                        src={portraitPreview}
+                        alt="待处理证件照原图"
+                        width={44}
+                        height={44}
+                        unoptimized
+                      />
+                    ) : (
+                      <Upload size={18} aria-hidden="true" />
+                    )}
+                    <span>{portraitFile ? portraitFile.name : "选择 JPG、PNG 或 WebP"}</span>
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                className="media-generate"
+                onClick={generateMediaAsset}
+                disabled={mediaGenerating}
+              >
+                <Sparkles size={17} aria-hidden="true" />
+                {mediaGenerating ? "生成中…" : `生成${mediaKind}`}
+              </button>
+              <span className="media-next-cost">
+                本次预估 ¥{nextMediaCost.toFixed(2)}
+                {mediaKind === "视频分镜" ? ` · ${mediaUsage.videoSeconds} 秒` : ""}
+              </span>
+            </div>
+          </div>
+
+          <Suspense
+            fallback={
+              <section className="scene-3d-band scene-3d-loading" aria-labelledby="scene-loading-title">
+                <div className="scene-3d-copy">
+                  <span>实时空间方案</span>
+                  <h3 id="scene-loading-title">3D 婚礼现场预览</h3>
+                  <p>正在加载可旋转的婚礼空间…</p>
+                </div>
+                <LoaderCircle size={28} aria-hidden="true" />
+              </section>
+            }
+          >
+            <WeddingScene3D style={mediaStyle} />
+          </Suspense>
+
+          <section className="media-job-center" aria-labelledby="media-job-title">
+            <div className="media-job-heading">
+              <div>
+                <ListFilter size={19} aria-hidden="true" />
+                <div>
+                  <h3 id="media-job-title">AI 任务中心</h3>
+                  <p>统一查看生成状态、素材结果和本月调用次数。</p>
+                </div>
+              </div>
+              <div className="media-usage">
+                <Gauge size={16} aria-hidden="true" />
+                <div>
+                  <span>
+                    本月 {mediaUsageTotal}/{mediaUsage.limit} 次
+                  </span>
+                  <meter min={0} max={100} value={mediaUsageRate} />
+                </div>
+                <div>
+                  <span>
+                    预估 ¥{mediaUsage.estimatedSpendCny.toFixed(2)}/
+                    {mediaUsage.monthlyBudgetCny.toFixed(2)}
+                  </span>
+                  <meter min={0} max={100} value={mediaBudgetRate} />
+                </div>
+              </div>
+            </div>
+
+            <div className="media-job-stats">
+              <div>
+                <strong>{mediaJobStats.total}</strong>
+                <span>真实任务</span>
+              </div>
+              <div>
+                <strong>{mediaJobStats.active}</strong>
+                <span>处理中</span>
+              </div>
+              <div>
+                <strong>{mediaJobStats.completed}</strong>
+                <span>已完成</span>
+              </div>
+              <div>
+                <strong>{mediaJobStats.failed}</strong>
+                <span>失败/取消</span>
+              </div>
+            </div>
+
+            <div className="media-job-filters" aria-label="AI 任务筛选">
+              {mediaJobFilters.map((filter) => (
+                <button
+                  type="button"
+                  className={mediaJobFilter === filter ? "selected" : ""}
+                  onClick={() => setMediaJobFilter(filter)}
+                  aria-pressed={mediaJobFilter === filter}
+                  key={filter}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="media-library-toolbar" id="photo-library">
+            <div className="media-library-heading">
+              <FolderOpen size={19} aria-hidden="true" />
+              <div>
+                <strong>完整素材库</strong>
+                <span>
+                  {mediaLibrary.length} 个素材 · {formatStorageSize(mediaStorageTotal)}
+                </span>
+              </div>
+            </div>
+            <label className="media-search-field">
+              <Search size={16} aria-hidden="true" />
+              <input
+                value={mediaSearch}
+                onChange={(event) => setMediaSearch(event.target.value)}
+                placeholder="搜索名称、风格或提示词"
+                aria-label="搜索素材"
+              />
+            </label>
+            <select
+              value={mediaKindFilter}
+              onChange={(event) => setMediaKindFilter(event.target.value as MediaKindFilter)}
+              aria-label="素材类型"
+            >
+              {mediaKindFilters.map((filter) => (
+                <option key={filter}>{filter}</option>
+              ))}
+            </select>
+            <select
+              value={mediaSort}
+              onChange={(event) => setMediaSort(event.target.value as MediaSort)}
+              aria-label="素材排序"
+            >
+              {mediaSortOptions.map((option) => (
+                <option key={option}>{option}</option>
+              ))}
+            </select>
+            <input
+              ref={mediaUploadRef}
+              type="file"
+              accept="image/webp,image/png,image/jpeg,video/mp4"
+              onChange={(event) => void importMediaFile(event.target.files?.[0] || null)}
+              hidden
+            />
+            <button type="button" onClick={() => mediaUploadRef.current?.click()}>
+              <Upload size={16} aria-hidden="true" />
+              上传素材
+            </button>
+          </div>
+
+          <div className="media-batch-bar">
+            <button type="button" onClick={toggleAllVisibleMedia}>
+              {filteredMediaLibrary.length > 0 &&
+              filteredMediaLibrary.every((asset) => selectedMediaIds.includes(asset.id)) ? (
+                <CheckSquare size={16} aria-hidden="true" />
+              ) : (
+                <Square size={16} aria-hidden="true" />
+              )}
+              选择当前结果
+            </button>
+            <span>已选择 {selectedMediaIds.length} 个</span>
+            <button
+              type="button"
+              onClick={downloadSelectedMedia}
+              disabled={selectedMediaIds.length === 0}
+            >
+              <Download size={16} aria-hidden="true" />
+              批量下载
+            </button>
+            <button
+              type="button"
+              className="danger-action"
+              onClick={() => void deleteSelectedMedia()}
+              disabled={selectedMediaIds.length === 0}
+            >
+              <Trash2 size={16} aria-hidden="true" />
+              批量删除
+            </button>
+          </div>
+
+          <div className="media-library">
+            {filteredMediaLibrary.map((asset) => (
+              <article
+                className={`media-card ${selectedMediaIds.includes(asset.id) ? "selected" : ""}`}
+                key={asset.id}
+              >
+                <div className={`media-preview ratio-${asset.ratio.replace(":", "-")}`}>
+                  {asset.kind === "视频分镜" && asset.status === "completed" ? (
+                    <video
+                      src={asset.assetPath}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      aria-label={`${asset.title}视频`}
+                    />
+                  ) : (
+                    <NextImage
+                      src={asset.assetPath}
+                      alt={`${asset.title}预览`}
+                      fill
+                      unoptimized
+                      sizes="(max-width: 640px) 100vw, (max-width: 980px) 50vw, 560px"
+                    />
+                  )}
+                  <div className="media-preview-top">
+                    <span>{asset.kind}</span>
+                    <span>{asset.ratio}</span>
+                    <span className={`generation-status ${asset.status}`}>
+                      {mediaStatusLabel(asset)}
+                    </span>
+                  </div>
+                  {asset.kind === "视频分镜" && asset.status === "template" && (
+                    <span className="media-play" aria-hidden="true">
+                      <Play size={24} fill="currentColor" />
+                    </span>
+                  )}
+                  {(asset.status === "queued" || asset.status === "in_progress") && (
+                    <div className="media-progress-overlay" role="status">
+                      <LoaderCircle size={28} aria-hidden="true" />
+                      <strong>{asset.status === "queued" ? "等待生成" : "视频生成中"}</strong>
+                      <span>{Math.round(asset.progress)}%</span>
+                      <meter min={0} max={100} value={asset.progress} />
+                    </div>
+                  )}
+                  {asset.status === "failed" && (
+                    <div className="media-progress-overlay failed" role="status">
+                      <strong>生成失败</strong>
+                      <span>{asset.error || "请调整画面要求后重试"}</span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="media-select"
+                    onClick={() => toggleMediaSelection(asset.id)}
+                    aria-label={selectedMediaIds.includes(asset.id) ? `取消选择${asset.title}` : `选择${asset.title}`}
+                    aria-pressed={selectedMediaIds.includes(asset.id)}
+                    title={selectedMediaIds.includes(asset.id) ? "取消选择" : "选择素材"}
+                  >
+                    {selectedMediaIds.includes(asset.id) ? (
+                      <CheckSquare size={18} aria-hidden="true" />
+                    ) : (
+                      <Square size={18} aria-hidden="true" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className={`media-favorite ${asset.favorite ? "selected" : ""}`}
+                    onClick={() => toggleMediaFavorite(asset.id)}
+                    aria-label={asset.favorite ? `取消收藏${asset.title}` : `收藏${asset.title}`}
+                    aria-pressed={asset.favorite}
+                    title={asset.favorite ? "取消收藏" : "收藏"}
+                  >
+                    <Heart size={17} fill={asset.favorite ? "currentColor" : "none"} aria-hidden="true" />
+                  </button>
+                </div>
+
+                <div className="media-card-body">
+                  <div className="media-card-title">
+                    <div>
+                      <span>{asset.style}</span>
+                      {editingAssetId === asset.id ? (
+                        <span className="media-title-editor">
+                          <input
+                            value={assetTitleDraft}
+                            onChange={(event) => setAssetTitleDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") saveMediaTitle(asset.id);
+                              if (event.key === "Escape") setEditingAssetId(null);
+                            }}
+                            aria-label="素材名称"
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveMediaTitle(asset.id)}
+                            aria-label="保存素材名称"
+                            title="保存名称"
+                          >
+                            <Save size={15} aria-hidden="true" />
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="media-title-display">
+                          <h3>{asset.title}</h3>
+                          <button
+                            type="button"
+                            onClick={() => startRenameMedia(asset)}
+                            aria-label={`重命名${asset.title}`}
+                            title="重命名"
+                          >
+                            <Settings size={14} aria-hidden="true" />
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                    <small>{asset.createdAt}</small>
+                  </div>
+                  <div className="media-asset-meta">
+                    <span>{asset.model || "未知来源"}</span>
+                    <span>{formatStorageSize(asset.sizeBytes)}</span>
+                    <span>预估 ¥{(asset.estimatedCostCny || 0).toFixed(2)}</span>
+                    <span>{asset.storageKey ? "云端素材" : "本机素材"}</span>
+                  </div>
+                  <p className="media-prompt">{asset.prompt}</p>
+
+                  {asset.frames.length > 0 && (
+                    <ol className="storyboard-list">
+                      {asset.frames.map((frame) => (
+                        <li key={frame}>{frame}</li>
+                      ))}
+                    </ol>
+                  )}
+
+                  <div className="media-actions">
+                    {(asset.status === "queued" || asset.status === "in_progress") && (
+                      <>
+                        <button
+                          type="button"
+                          className="subtle-action"
+                          onClick={() => void refreshVideoAsset(asset)}
+                        >
+                          <RefreshCw size={15} aria-hidden="true" />
+                          刷新进度
+                        </button>
+                        <button
+                          type="button"
+                          className="delete-task"
+                          onClick={() => void cancelMediaJob(asset)}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                          取消任务
+                        </button>
+                      </>
+                    )}
+                    {(asset.status === "failed" || asset.status === "cancelled") && (
+                      <button
+                        type="button"
+                        className="subtle-action"
+                        onClick={() => prepareMediaRetry(asset)}
+                      >
+                        <RefreshCw size={15} aria-hidden="true" />
+                        重新设置
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="subtle-action"
+                      onClick={() => copyMediaPrompt(asset)}
+                    >
+                      <Copy size={15} aria-hidden="true" />
+                      复制提示词
+                    </button>
+                    <button
+                      type="button"
+                      className="subtle-action"
+                      onClick={() => downloadMediaAsset(asset)}
+                      disabled={
+                        asset.status === "queued" ||
+                        asset.status === "in_progress" ||
+                        asset.status === "failed" ||
+                        asset.status === "cancelled"
+                      }
+                    >
+                      <Download size={15} aria-hidden="true" />
+                      {asset.kind === "视频分镜" && asset.status === "completed"
+                        ? "下载视频"
+                        : asset.kind === "视频分镜"
+                          ? "下载分镜"
+                          : "下载图片"}
+                    </button>
+                    <button
+                      type="button"
+                      className="subtle-action"
+                      onClick={() => addMediaToTask(asset)}
+                    >
+                      <Plus size={15} aria-hidden="true" />
+                      加入任务
+                    </button>
+                    <button
+                      type="button"
+                      className="delete-task"
+                      onClick={() => void deleteMediaAsset(asset.id)}
+                      aria-label={`删除${asset.title}`}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                      <span>删除</span>
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+            {filteredMediaLibrary.length === 0 && (
+              <div className="media-empty-state">
+                <ListFilter size={22} aria-hidden="true" />
+                <strong>当前筛选没有任务</strong>
+                <span>切换到“全部”查看示例素材与生成结果。</span>
+                <button type="button" onClick={() => setMediaJobFilter("全部")}>
+                  查看全部
+                </button>
+              </div>
+            )}
+          </div>
+
+          <p className="media-footnote">
+            <HeartHandshake size={16} aria-hidden="true" />
+            文案由 {mediaService.copy.model} 生成；场景效果图和证件照由 {mediaService.image.model} 生成；视频由 {mediaService.video.model} 异步渲染。3D 预览在本机实时运行，不消耗 API 额度。
+          </p>
+        </section>
+      )}
+
+
+      {["plan", "budget", "details", "collaboration"].includes(view) && (
+        <section className="planner-grid" id={view === "plan" ? "plan" : undefined}>
+          {view === "plan" && (
+            <article className="panel task-panel">
+              <div className="section-title">
+                <ClipboardCheck size={19} aria-hidden="true" />
+                <h2>每天能完成的小事</h2>
+              </div>
+              <div className="task-list">
+                {taskList.map((task) => (
+                  <div className="task-row" key={task.id}>
+                    <button
+                      type="button"
+                      className={`task-icon task-toggle ${statusClass(task.status).replace("status ", "")}`}
+                      onClick={() => cycleTaskStatus(task.id)}
+                      aria-label={`切换${task.title}状态`}
+                    >
+                      <CheckCircle2 size={18} aria-hidden="true" />
+                    </button>
+                    <div className="task-copy">
+                      <input
+                        className="task-title-input"
+                        value={task.title}
+                        onChange={(event) => updateTask(task.id, { title: event.target.value })}
+                        aria-label="任务标题"
+                      />
+                      <input
+                        className="task-stage-input"
+                        value={task.stage}
+                        onChange={(event) => updateTask(task.id, { stage: event.target.value })}
+                        aria-label="任务阶段"
+                      />
+                    </div>
+                    <div className="task-actions">
+                      <select
+                        className={statusClass(task.status)}
+                        value={task.status}
+                        onChange={(event) =>
+                          updateTask(task.id, { status: event.target.value as TaskStatus })
+                        }
+                        aria-label="任务状态"
+                      >
+                        {taskStatuses.map((status) => (
+                          <option key={status}>{status}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="subtle-action task-detail-toggle"
+                        onClick={() => setOpenTaskId(openTaskId === task.id ? null : task.id)}
+                      >
+                        详情
+                      </button>
+                      <button
+                        type="button"
+                        className="delete-task"
+                        onClick={() => deleteTask(task.id)}
+                        aria-label={`删除${task.title}`}
+                      >
+                        <Trash2 size={15} aria-hidden="true" />
+                        <span>删除</span>
+                      </button>
+                    </div>
+                    {openTaskId === task.id && (
+                      <div className="task-detail">
+                        <label>
+                          负责人
+                          <input
+                            value={task.assignee}
+                            onChange={(event) => updateTask(task.id, { assignee: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          截止日期
+                          <input
+                            type="date"
+                            value={task.dueDate}
+                            onChange={(event) => updateTask(task.id, { dueDate: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          备注
+                          <textarea
+                            value={task.notes}
+                            onChange={(event) => updateTask(task.id, { notes: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          确认标准
+                          <textarea
+                            value={task.criteria}
+                            onChange={(event) => updateTask(task.id, { criteria: event.target.value })}
+                          />
+                        </label>
                       </div>
-                      {teamOverview.canManage && member.role !== "owner" ? (
-                        <select
-                          value={member.role}
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="panel-actions">
+                <button type="button" className="ghost-action" onClick={() => addTodayTask()}>
+                  <Plus size={17} aria-hidden="true" />
+                  新增今日小事
+                </button>
+                <button type="button" className="subtle-action" onClick={() => resetWorkspace()}>
+                  <RotateCcw size={16} aria-hidden="true" />
+                  重置
+                </button>
+              </div>
+            </article>
+          )}
+
+          {view === "plan" && (
+            <article className="panel ai-panel">
+              <div className="section-title">
+                <Bot size={19} aria-hidden="true" />
+                <h2>AI 陪伴建议</h2>
+              </div>
+              <ol className="ai-result">
+                {draft.map((item) => (
+                  <li key={item}>
+                    <span>{item}</span>
+                    <button type="button" className="inline-action" onClick={() => addTodayTask(item)}>
+                      加入任务
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </article>
+          )}
+
+          {view === "budget" && (
+            <article className="panel" id="budget">
+              <div className="section-title">
+                <CircleDollarSign size={19} aria-hidden="true" />
+                <h2>预算安心感</h2>
+              </div>
+              <strong className="big-number">{currency(totals.total)}</strong>
+              <p className={`muted ${budgetGap < 0 ? "over-budget" : ""}`}>
+                已支付 {currency(totals.paid)} · 当前执行 {totals.rate}% ·
+                {budgetGap < 0 ? ` 超预算 ${currency(Math.abs(budgetGap))}` : ` 预算余量 ${currency(budgetGap)}`}
+              </p>
+              <p className="budget-summary">
+                已结清 {settledBudgetCount}/{budgetList.length} 项，预算超过上限时会自动标红提醒。
+              </p>
+              <div className="budget-bars">
+                {budgetList.map((item) => (
+                  <div className={`budget-row ${item.status === "已结清" ? "settled" : ""}`} key={item.id}>
+                    <div className="budget-editor">
+                      <input
+                        value={item.name}
+                        onChange={(event) => updateBudgetItem(item.id, { name: event.target.value })}
+                        aria-label="预算名称"
+                      />
+                      <label>
+                        总预算
+                        <input
+                          type="number"
+                          min={0}
+                          value={item.total}
                           onChange={(event) =>
-                            void updateTeamMemberRole(
-                              member.userId,
-                              event.target.value as TeamRole,
+                            updateBudgetItem(item.id, { total: parseMoney(event.target.value) })
+                          }
+                          aria-label={`${item.name}总预算`}
+                        />
+                      </label>
+                      <label>
+                        已支付
+                        <input
+                          type="number"
+                          min={0}
+                          max={item.total}
+                          value={item.paid}
+                          onChange={(event) =>
+                            updateBudgetItem(item.id, { paid: parseMoney(event.target.value) })
+                          }
+                          aria-label={`${item.name}已支付`}
+                        />
+                      </label>
+                      <label>
+                        状态
+                        <select
+                          className={budgetStatusClass(item.status)}
+                          value={item.status}
+                          onChange={(event) =>
+                            updateBudgetItem(item.id, { status: event.target.value as BudgetStatus })
+                          }
+                          aria-label={`${item.name}付款状态`}
+                        >
+                          {budgetStatuses.map((status) => (
+                            <option key={status}>{status}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="delete-task"
+                        onClick={() => deleteBudgetItem(item.id)}
+                        aria-label={`删除${item.name}`}
+                      >
+                        <Trash2 size={15} aria-hidden="true" />
+                        <span>删除</span>
+                      </button>
+                    </div>
+                    <meter min={0} max={Math.max(item.total, 1)} value={item.paid} />
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="ghost-action budget-action" onClick={addBudgetItem}>
+                <Plus size={17} aria-hidden="true" />
+                添加预算
+              </button>
+            </article>
+          )}
+
+          {view === "details" && (
+            <article className="panel timeline-panel" id="details">
+              <div className="section-title">
+                <CalendarDays size={19} aria-hidden="true" />
+                <h2>智能备婚阶段</h2>
+              </div>
+              <div className="phase-list">
+                {stagePlan.map((stage, index) => (
+                  <div className={`phase-card ${statusClass(stage.status).replace("status ", "")}`} key={stage.title}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <div>
+                      <strong>{stage.title}</strong>
+                      <small>{stage.window}</small>
+                    </div>
+                    <em>{stage.status}</em>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="ghost-action" onClick={applyStageTasks}>
+                <ListChecks size={17} aria-hidden="true" />
+                生成阶段任务
+              </button>
+            </article>
+          )}
+
+          {view === "collaboration" && (
+            <article className="panel wide-panel" id="collaboration">
+              <div className="section-title">
+                <UsersRound size={19} aria-hidden="true" />
+                <h2>不再遗漏的协作清单</h2>
+              </div>
+              <p className="muted">
+                已完成 {completedCollaboration}/{collaborationList.length} 项，点击即可切换。
+              </p>
+              <div className="feature-strip">
+                {collaborationList.map((item) => (
+                  <button
+                    type="button"
+                    className={item.done ? "checked" : ""}
+                    onClick={() => toggleCollaboration(item.id)}
+                    key={item.id}
+                  >
+                    <CheckCircle2 size={15} aria-hidden="true" />
+                    {item.title}
+                  </button>
+                ))}
+              </div>
+              {!currentUser ? (
+                <div className="team-login-prompt">
+                  <ShieldCheck size={19} aria-hidden="true" />
+                  <div>
+                    <strong>登录后启用多人协作</strong>
+                    <span>成员权限、通知记录和套餐额度都会绑定到独立婚礼空间。</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="subtle-action"
+                    onClick={() => scrollToSection("account")}
+                  >
+                    登录账号
+                  </button>
+                </div>
+              ) : (
+                <div className="team-hub" aria-label="多人协作中心">
+                  {teamOverview && !teamOverview.canWrite && (
+                    <div className="team-readonly-banner" role="status">
+                      <ShieldCheck size={18} aria-hidden="true" />
+                      <div>
+                        <strong>当前为只读空间</strong>
+                        <span>你可以查看备婚资料、预算和素材，修改与 AI 生成操作已由系统拦截。</span>
+                      </div>
+                    </div>
+                  )}
+                  <section className="team-module">
+                    <div className="team-module-title">
+                      <UserCog size={18} aria-hidden="true" />
+                      <div>
+                        <strong>空间成员</strong>
+                        <span>
+                          {teamLoading
+                            ? "正在读取"
+                            : `${teamOverview?.members.length || 1} 位成员 · ${
+                                teamOverview ? teamRoleLabel(teamOverview.role) : "读取中"
+                              }`}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="team-member-list">
+                      {teamOverview?.members.map((member) => (
+                        <div className="team-member-row" key={member.userId}>
+                          <span className="team-avatar">
+                            {member.displayName.slice(0, 1)}
+                          </span>
+                          <div>
+                            <strong>{member.displayName}</strong>
+                            <small>{member.email}</small>
+                          </div>
+                          {teamOverview.canManage && member.role !== "owner" ? (
+                            <select
+                              value={member.role}
+                              onChange={(event) =>
+                                void updateTeamMemberRole(
+                                  member.userId,
+                                  event.target.value as TeamRole,
+                                )
+                              }
+                              aria-label={`${member.displayName}角色`}
+                              disabled={teamBusy}
+                            >
+                              <option value="planner">婚礼策划</option>
+                              <option value="editor">共同编辑</option>
+                              <option value="viewer">仅查看</option>
+                            </select>
+                          ) : (
+                            <em>{teamRoleLabel(member.role)}</em>
+                          )}
+                          {teamOverview.canManage && member.role !== "owner" && (
+                            <button
+                              type="button"
+                              className="icon-danger"
+                              onClick={() => void removeTeamMember(member.userId)}
+                              aria-label={`移除${member.displayName}`}
+                              title="移除成员"
+                              disabled={teamBusy}
+                            >
+                              <Trash2 size={15} aria-hidden="true" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {teamOverview?.canManage && (
+                      <div className="team-invite-form">
+                        <input
+                          type="email"
+                          value={inviteEmail}
+                          onChange={(event) => setInviteEmail(event.target.value)}
+                          placeholder="成员邮箱"
+                          aria-label="邀请成员邮箱"
+                        />
+                        <select
+                          value={inviteRole}
+                          onChange={(event) =>
+                            setInviteRole(
+                              event.target.value as Exclude<TeamRole, "owner">,
                             )
                           }
-                          aria-label={`${member.displayName}角色`}
-                          disabled={teamBusy}
+                          aria-label="邀请成员角色"
                         >
                           <option value="planner">婚礼策划</option>
                           <option value="editor">共同编辑</option>
                           <option value="viewer">仅查看</option>
                         </select>
-                      ) : (
-                        <em>{teamRoleLabel(member.role)}</em>
-                      )}
-                      {teamOverview.canManage && member.role !== "owner" && (
                         <button
                           type="button"
-                          className="icon-danger"
-                          onClick={() => void removeTeamMember(member.userId)}
-                          aria-label={`移除${member.displayName}`}
-                          title="移除成员"
+                          onClick={() => void createTeamInvite()}
                           disabled={teamBusy}
                         >
-                          <Trash2 size={15} aria-hidden="true" />
+                          <UserPlus size={15} aria-hidden="true" />
+                          发出邀请
+                        </button>
+                      </div>
+                    )}
+                    {latestInviteCode && (
+                      <div className="invite-code-result">
+                        <span>邀请码</span>
+                        <strong>{latestInviteCode}</strong>
+                        <button
+                          type="button"
+                          onClick={() => void navigator.clipboard.writeText(latestInviteCode)}
+                          aria-label="复制邀请码"
+                        >
+                          <Copy size={14} aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
+                    <div className="team-accept-form">
+                      <input
+                        value={acceptInviteCode}
+                        onChange={(event) =>
+                          setAcceptInviteCode(event.target.value.toUpperCase().slice(0, 10))
+                        }
+                        placeholder="输入 10 位邀请码"
+                        aria-label="协作邀请码"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void acceptTeamInvite()}
+                        disabled={teamBusy || acceptInviteCode.length !== 10}
+                      >
+                        加入空间
+                      </button>
+                    </div>
+                  </section>
+
+                  <section className="team-module">
+                    <div className="team-module-title">
+                      <Bell size={18} aria-hidden="true" />
+                      <div>
+                        <strong>通知中心</strong>
+                        <span>{notificationOverview?.unread || 0} 条未读提醒</span>
+                      </div>
+                      {(notificationOverview?.unread || 0) > 0 && (
+                        <button
+                          type="button"
+                          className="text-action"
+                          onClick={() => void markTeamNotificationsRead()}
+                        >
+                          全部已读
                         </button>
                       )}
                     </div>
-                  ))}
-                </div>
-                {teamOverview?.canManage && (
-                  <div className="team-invite-form">
-                    <input
-                      type="email"
-                      value={inviteEmail}
-                      onChange={(event) => setInviteEmail(event.target.value)}
-                      placeholder="成员邮箱"
-                      aria-label="邀请成员邮箱"
-                    />
-                    <select
-                      value={inviteRole}
-                      onChange={(event) =>
-                        setInviteRole(
-                          event.target.value as Exclude<TeamRole, "owner">,
-                        )
-                      }
-                      aria-label="邀请成员角色"
-                    >
-                      <option value="planner">婚礼策划</option>
-                      <option value="editor">共同编辑</option>
-                      <option value="viewer">仅查看</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => void createTeamInvite()}
-                      disabled={teamBusy}
-                    >
-                      <UserPlus size={15} aria-hidden="true" />
-                      发出邀请
-                    </button>
-                  </div>
-                )}
-                {latestInviteCode && (
-                  <div className="invite-code-result">
-                    <span>邀请码</span>
-                    <strong>{latestInviteCode}</strong>
-                    <button
-                      type="button"
-                      onClick={() => void navigator.clipboard.writeText(latestInviteCode)}
-                      aria-label="复制邀请码"
-                    >
-                      <Copy size={14} aria-hidden="true" />
-                    </button>
-                  </div>
-                )}
-                <div className="team-accept-form">
-                  <input
-                    value={acceptInviteCode}
-                    onChange={(event) =>
-                      setAcceptInviteCode(event.target.value.toUpperCase().slice(0, 10))
-                    }
-                    placeholder="输入 10 位邀请码"
-                    aria-label="协作邀请码"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => void acceptTeamInvite()}
-                    disabled={teamBusy || acceptInviteCode.length !== 10}
-                  >
-                    加入空间
-                  </button>
-                </div>
-              </section>
-
-              <section className="team-module">
-                <div className="team-module-title">
-                  <Bell size={18} aria-hidden="true" />
-                  <div>
-                    <strong>通知中心</strong>
-                    <span>{notificationOverview?.unread || 0} 条未读提醒</span>
-                  </div>
-                  {(notificationOverview?.unread || 0) > 0 && (
-                    <button
-                      type="button"
-                      className="text-action"
-                      onClick={() => void markTeamNotificationsRead()}
-                    >
-                      全部已读
-                    </button>
-                  )}
-                </div>
-                <div className="notification-toggles">
-                  {(["email", "sms", "wechat"] as const).map((channel) => (
-                    <label key={channel}>
-                      <input
-                        type="checkbox"
-                        checked={notificationOverview?.preferences[channel] || false}
-                        onChange={(event) =>
-                          void saveNotificationPreferences({
-                            [channel]: event.target.checked,
-                          })
-                        }
-                      />
-                      <span>
-                        {channel === "email"
-                          ? "邮件"
-                          : channel === "sms"
-                            ? "短信"
-                            : "微信"}
-                      </span>
-                      <small>
-                        {notificationOverview?.capabilities[channel]
-                          ? "可用"
-                          : "待配置"}
-                      </small>
-                    </label>
-                  ))}
-                </div>
-                {notificationOverview?.preferences.sms && (
-                  <input
-                    className="notification-phone"
-                    value={notificationOverview.preferences.phone}
-                    onChange={(event) =>
-                      setNotificationOverview((current) =>
-                        current
-                          ? {
-                              ...current,
-                              preferences: {
-                                ...current.preferences,
-                                phone: event.target.value,
-                              },
+                    <div className="notification-toggles">
+                      {(["email", "sms", "wechat"] as const).map((channel) => (
+                        <label key={channel}>
+                          <input
+                            type="checkbox"
+                            checked={notificationOverview?.preferences[channel] || false}
+                            onChange={(event) =>
+                              void saveNotificationPreferences({
+                                [channel]: event.target.checked,
+                              })
                             }
-                          : current,
-                      )
-                    }
-                    onBlur={(event) =>
-                      void saveNotificationPreferences({ phone: event.target.value })
-                    }
-                    placeholder="接收短信的手机号"
-                    aria-label="通知手机号"
-                  />
-                )}
-                <div className="notification-list">
-                  {notificationOverview?.items.slice(0, 3).map((item) => (
-                    <div className={item.read ? "read" : ""} key={item.id}>
-                      <strong>{item.title}</strong>
-                      <span>{item.message}</span>
-                    </div>
-                  ))}
-                  {notificationOverview?.items.length === 0 && (
-                    <p>暂无提醒，婚期节点和预算提醒会显示在这里。</p>
-                  )}
-                </div>
-                <div className="automatic-reminder-box">
-                  <div>
-                    <CalendarDays size={16} aria-hidden="true" />
-                    <span>
-                      <strong>自动提醒</strong>
-                      <small>每天 09:00 检查婚期、任务和预算</small>
-                    </span>
-                  </div>
-                  {reminderOverview?.rules.length ? (
-                    <ul>
-                      {reminderOverview.rules.slice(0, 3).map((rule) => (
-                        <li key={rule.id}>{rule.title}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p>当前没有需要立即提醒的事项。</p>
-                  )}
-                  <button
-                    type="button"
-                    className="text-action"
-                    onClick={() => void runAutomaticReminderCheck()}
-                    disabled={teamBusy || !reminderOverview?.canRun}
-                  >
-                    <RefreshCw size={14} aria-hidden="true" />
-                    立即检查
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  className="subtle-action"
-                  onClick={() => void testNotificationChannels()}
-                  disabled={teamBusy}
-                >
-                  <Send size={15} aria-hidden="true" />
-                  测试通知
-                </button>
-              </section>
-
-              <section className="team-module billing-module">
-                <div className="team-module-title">
-                  <CreditCard size={18} aria-hidden="true" />
-                  <div>
-                    <strong>套餐与额度</strong>
-                    <span>
-                      当前{" "}
-                      {billingOverview?.plans.find(
-                        (plan) => plan.id === billingOverview.record.plan,
-                      )?.name || "轻松备婚"}
-                    </span>
-                  </div>
-                </div>
-                {aiUsageOverview && (
-                  <div className="server-usage-summary">
-                    <div>
-                      <span>
-                        本月已使用
-                        <strong>
-                          {aiUsageOverview.record.usedUnits +
-                            aiUsageOverview.record.reservedUnits}
-                          /{aiUsageOverview.allowance}
-                        </strong>
-                      </span>
-                      <meter
-                        min={0}
-                        max={100}
-                        value={Math.min(
-                          100,
-                          ((aiUsageOverview.record.usedUnits +
-                            aiUsageOverview.record.reservedUnits) /
-                            Math.max(1, aiUsageOverview.allowance)) *
-                            100,
-                        )}
-                      />
-                    </div>
-                    <div className="usage-facts">
-                      <span>可用 {aiUsageOverview.available} 点</span>
-                      <span>处理中 {aiUsageOverview.record.reservedUnits} 点</span>
-                      <span>
-                        API 预估 ¥{aiUsageOverview.record.estimatedCostCny.toFixed(2)}
-                      </span>
-                    </div>
-                    <small>
-                      文案 {aiUsageOverview.record.operations.copy} · 图片{" "}
-                      {aiUsageOverview.record.operations.image} · 证件照{" "}
-                      {aiUsageOverview.record.operations.portrait} · 视频{" "}
-                      {aiUsageOverview.record.operations.video}
-                    </small>
-                  </div>
-                )}
-                <div className="billing-plan-list">
-                  {billingOverview?.plans.map((plan) => {
-                    const current = billingOverview.record.plan === plan.id;
-                    return (
-                      <div className={current ? "current" : ""} key={plan.id}>
-                        <span>
-                          <strong>{plan.name}</strong>
+                          />
+                          <span>
+                            {channel === "email"
+                              ? "邮件"
+                              : channel === "sms"
+                                ? "短信"
+                                : "微信"}
+                          </span>
                           <small>
-                            {plan.priceCny === 0 ? "免费" : `¥${plan.priceCny}/月`}
+                            {notificationOverview?.capabilities[channel]
+                              ? "可用"
+                              : "待配置"}
                           </small>
+                        </label>
+                      ))}
+                    </div>
+                    {notificationOverview?.preferences.sms && (
+                      <input
+                        className="notification-phone"
+                        value={notificationOverview.preferences.phone}
+                        onChange={(event) =>
+                          setNotificationOverview((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  preferences: {
+                                    ...current.preferences,
+                                    phone: event.target.value,
+                                  },
+                                }
+                              : current,
+                          )
+                        }
+                        onBlur={(event) =>
+                          void saveNotificationPreferences({ phone: event.target.value })
+                        }
+                        placeholder="接收短信的手机号"
+                        aria-label="通知手机号"
+                      />
+                    )}
+                    <div className="notification-list">
+                      {notificationOverview?.items.slice(0, 3).map((item) => (
+                        <div className={item.read ? "read" : ""} key={item.id}>
+                          <strong>{item.title}</strong>
+                          <span>{item.message}</span>
+                        </div>
+                      ))}
+                      {notificationOverview?.items.length === 0 && (
+                        <p>暂无提醒，婚期节点和预算提醒会显示在这里。</p>
+                      )}
+                    </div>
+                    <div className="automatic-reminder-box">
+                      <div>
+                        <CalendarDays size={16} aria-hidden="true" />
+                        <span>
+                          <strong>自动提醒</strong>
+                          <small>每天 09:00 检查婚期、任务和预算</small>
                         </span>
-                        <p>
-                          {plan.memberLimit} 人协作 · 每月 {plan.monthlyAiLimit} 点 AI
-                        </p>
-                        {current ? (
-                          <em>当前套餐</em>
-                        ) : plan.id !== "free" ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void startPlanCheckout(plan.id as "pro" | "studio")
-                            }
-                            disabled={
-                              teamBusy ||
-                              !billingOverview.canManage ||
-                              !billingOverview.paymentConfigured
-                            }
-                          >
-                            升级
-                          </button>
-                        ) : null}
                       </div>
-                    );
-                  })}
-                </div>
-                {!billingOverview?.paymentConfigured && (
-                  <p className="billing-note">支付通道待配置，当前不会产生扣款。</p>
-                )}
-              </section>
-
-              <section className="team-module audit-module">
-                <div className="team-module-title">
-                  <History size={18} aria-hidden="true" />
-                  <div>
-                    <strong>操作记录</strong>
-                    <span>最近 {teamOverview?.audit.length || 0} 条</span>
-                  </div>
-                  {teamOverview?.canManage && (
+                      {reminderOverview?.rules.length ? (
+                        <ul>
+                          {reminderOverview.rules.slice(0, 3).map((rule) => (
+                            <li key={rule.id}>{rule.title}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>当前没有需要立即提醒的事项。</p>
+                      )}
+                      <button
+                        type="button"
+                        className="text-action"
+                        onClick={() => void runAutomaticReminderCheck()}
+                        disabled={teamBusy || !reminderOverview?.canRun}
+                      >
+                        <RefreshCw size={14} aria-hidden="true" />
+                        立即检查
+                      </button>
+                    </div>
                     <button
                       type="button"
-                      className="text-action"
-                      onClick={() => void downloadAuditLog()}
+                      className="subtle-action"
+                      onClick={() => void testNotificationChannels()}
                       disabled={teamBusy}
                     >
-                      <Download size={14} aria-hidden="true" />
-                      导出
+                      <Send size={15} aria-hidden="true" />
+                      测试通知
                     </button>
-                  )}
-                </div>
-                <div className="audit-list">
-                  {teamOverview?.audit.slice(0, 5).map((item) => (
-                    <div key={item.id}>
-                      <span>{item.actorName}</span>
-                      <strong>{item.action}</strong>
-                      <small>{item.detail}</small>
+                  </section>
+
+                  <section className="team-module billing-module">
+                    <div className="team-module-title">
+                      <CreditCard size={18} aria-hidden="true" />
+                      <div>
+                        <strong>套餐与额度</strong>
+                        <span>
+                          当前{" "}
+                          {billingOverview?.plans.find(
+                            (plan) => plan.id === billingOverview.record.plan,
+                          )?.name || "轻松备婚"}
+                        </span>
+                      </div>
                     </div>
-                  ))}
-                  {teamOverview?.audit.length === 0 && (
-                    <p>成员邀请、权限调整和资料保存会记录在这里。</p>
-                  )}
+                    {aiUsageOverview && (
+                      <div className="server-usage-summary">
+                        <div>
+                          <span>
+                            本月已使用
+                            <strong>
+                              {aiUsageOverview.record.usedUnits +
+                                aiUsageOverview.record.reservedUnits}
+                              /{aiUsageOverview.allowance}
+                            </strong>
+                          </span>
+                          <meter
+                            min={0}
+                            max={100}
+                            value={Math.min(
+                              100,
+                              ((aiUsageOverview.record.usedUnits +
+                                aiUsageOverview.record.reservedUnits) /
+                                Math.max(1, aiUsageOverview.allowance)) *
+                                100,
+                            )}
+                          />
+                        </div>
+                        <div className="usage-facts">
+                          <span>可用 {aiUsageOverview.available} 点</span>
+                          <span>处理中 {aiUsageOverview.record.reservedUnits} 点</span>
+                          <span>
+                            API 预估 ¥{aiUsageOverview.record.estimatedCostCny.toFixed(2)}
+                          </span>
+                        </div>
+                        <small>
+                          文案 {aiUsageOverview.record.operations.copy} · 图片{" "}
+                          {aiUsageOverview.record.operations.image} · 证件照{" "}
+                          {aiUsageOverview.record.operations.portrait} · 视频{" "}
+                          {aiUsageOverview.record.operations.video}
+                        </small>
+                      </div>
+                    )}
+                    <div className="billing-plan-list">
+                      {billingOverview?.plans.map((plan) => {
+                        const current = billingOverview.record.plan === plan.id;
+                        return (
+                          <div className={current ? "current" : ""} key={plan.id}>
+                            <span>
+                              <strong>{plan.name}</strong>
+                              <small>
+                                {plan.priceCny === 0 ? "免费" : `¥${plan.priceCny}/月`}
+                              </small>
+                            </span>
+                            <p>
+                              {plan.memberLimit} 人协作 · 每月 {plan.monthlyAiLimit} 点 AI
+                            </p>
+                            {current ? (
+                              <em>当前套餐</em>
+                            ) : plan.id !== "free" ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void startPlanCheckout(plan.id as "pro" | "studio")
+                                }
+                                disabled={
+                                  teamBusy ||
+                                  !billingOverview.canManage ||
+                                  !billingOverview.paymentConfigured
+                                }
+                              >
+                                升级
+                              </button>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {!billingOverview?.paymentConfigured && (
+                      <p className="billing-note">支付通道待配置，当前不会产生扣款。</p>
+                    )}
+                  </section>
+
+                  <section className="team-module audit-module">
+                    <div className="team-module-title">
+                      <History size={18} aria-hidden="true" />
+                      <div>
+                        <strong>操作记录</strong>
+                        <span>最近 {teamOverview?.audit.length || 0} 条</span>
+                      </div>
+                      {teamOverview?.canManage && (
+                        <button
+                          type="button"
+                          className="text-action"
+                          onClick={() => void downloadAuditLog()}
+                          disabled={teamBusy}
+                        >
+                          <Download size={14} aria-hidden="true" />
+                          导出
+                        </button>
+                      )}
+                    </div>
+                    <div className="audit-list">
+                      {teamOverview?.audit.slice(0, 5).map((item) => (
+                        <div key={item.id}>
+                          <span>{item.actorName}</span>
+                          <strong>{item.action}</strong>
+                          <small>{item.detail}</small>
+                        </div>
+                      ))}
+                      {teamOverview?.audit.length === 0 && (
+                        <p>成员邀请、权限调整和资料保存会记录在这里。</p>
+                      )}
+                    </div>
+                  </section>
                 </div>
-              </section>
-            </div>
+              )}
+            </article>
           )}
-        </article>
 
-      </section>
+        </section>
+      )}
 
-      {currentUser?.isAdmin && (
+      {view === "admin" && currentUser?.isAdmin && (
         <section className="admin-band" id="admin" aria-labelledby="admin-title">
           <div className="admin-heading">
             <div>
@@ -8470,908 +8782,942 @@ export function WeddingPlanner() {
         </section>
       )}
 
-      <section className="business-grid" id="business">
-        <article className="panel business-panel" id="guests">
-          <div className="section-title">
-            <UserPlus size={19} aria-hidden="true" />
-            <h2>宾客名单管理</h2>
-          </div>
-          <p className="module-summary">
-            已确认 {confirmedGuestCount} 人到场，仍有 {pendingGuestCount} 位宾客待回复。
-          </p>
-          <div className="guest-rsvp-overview">
-            <span>
-              <Link2 size={15} aria-hidden="true" />
-              已建邀请 {invitedGuestCount} 份 · 已送达 {deliveredInvitationCount} 份 · 已收回执 {respondedGuestCount} 份
-            </span>
-            <button
-              type="button"
-              onClick={() => void refreshGuestRsvps()}
-              disabled={invitationBusyGuestId === 0}
-            >
-              {invitationBusyGuestId === 0 ? (
-                <LoaderCircle className="media-spin" size={14} aria-hidden="true" />
-              ) : (
-                <RefreshCw size={14} aria-hidden="true" />
-              )}
-              刷新回执
-            </button>
-          </div>
-          <div className="invitation-batch-toolbar" aria-label="邀请批量发送与催办">
-            <strong>已选 {selectedGuestIds.length} 人</strong>
-            <button type="button" onClick={selectPendingGuests}>
-              <CheckSquare size={14} aria-hidden="true" />
-              选择待回复
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedGuestIds([])}
-              disabled={selectedGuestIds.length === 0}
-            >
-              清除选择
-            </button>
-            <button
-              type="button"
-              className="batch-primary"
-              onClick={() => void batchSendGuestInvitations(false)}
-              disabled={batchInvitationBusy || selectedGuestIds.length === 0}
-            >
-              {batchInvitationBusy ? (
-                <LoaderCircle className="media-spin" size={14} aria-hidden="true" />
-              ) : (
-                <Send size={14} aria-hidden="true" />
-              )}
-              批量发送
-            </button>
-            <button
-              type="button"
-              className="batch-reminder"
-              onClick={() => void batchSendGuestInvitations(true)}
-              disabled={batchInvitationBusy || selectedGuestIds.length === 0}
-            >
-              <Bell size={14} aria-hidden="true" />
-              批量催办
-            </button>
-          </div>
-          <div className="business-list">
-            {guestList.map((guest) => (
-              <div className="business-row guest-row" key={guest.id}>
-                <label className="guest-select-field">
-                  <input
-                    type="checkbox"
-                    checked={selectedGuestIds.includes(guest.id)}
-                    onChange={() => toggleGuestSelection(guest.id)}
-                    aria-label={`选择${guest.name}`}
-                  />
-                  选择
-                </label>
-                <input
-                  value={guest.name}
-                  onChange={(event) => updateGuest(guest.id, { name: event.target.value })}
-                  aria-label="宾客姓名"
-                />
-                <input
-                  value={guest.relation}
-                  onChange={(event) => updateGuest(guest.id, { relation: event.target.value })}
-                  aria-label="宾客关系"
-                />
-                <label>
-                  人数
-                  <input
-                    type="number"
-                    min={1}
-                    value={guest.count}
-                    onChange={(event) => updateGuest(guest.id, { count: Number(event.target.value) })}
-                    aria-label={`${guest.name}人数`}
-                  />
-                </label>
-                <label>
-                  回执
-                  <select
-                    value={guest.rsvp}
-                    onChange={(event) => updateGuest(guest.id, { rsvp: event.target.value as GuestRsvp })}
-                    aria-label={`${guest.name}回执`}
-                  >
-                    {guestRsvps.map((rsvp) => (
-                      <option key={rsvp}>{rsvp}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={guest.companion}
-                    onChange={(event) => updateGuest(guest.id, { companion: event.target.checked })}
-                  />
-                  携伴
-                </label>
-                <input
-                  value={guest.table}
-                  onChange={(event) => updateGuest(guest.id, { table: event.target.value })}
-                  aria-label={`${guest.name}桌位偏好`}
-                />
-                <textarea
-                  value={guest.notes}
-                  onChange={(event) => updateGuest(guest.id, { notes: event.target.value })}
-                  aria-label={`${guest.name}备注`}
-                />
-                <button
-                  type="button"
-                  className="delete-task"
-                  onClick={() => deleteGuest(guest.id)}
-                  aria-label={`删除${guest.name}`}
-                >
-                  <Trash2 size={15} aria-hidden="true" />
-                  <span>删除</span>
-                </button>
-                <div className="guest-invitation-actions">
-                  <input
-                    className="guest-contact-input"
-                    value={guest.contact || ""}
-                    onChange={(event) => updateGuest(guest.id, { contact: event.target.value })}
-                    placeholder="邮箱、手机号或微信标识"
-                    aria-label={`${guest.name}邀请联系方式`}
-                  />
-                  <select
-                    className="guest-channel-select"
-                    value={guest.invitationChannel || "链接"}
-                    onChange={(event) =>
-                      updateGuest(guest.id, {
-                        invitationChannel: event.target.value as InvitationChannel,
-                      })
-                    }
-                    aria-label={`${guest.name}邀请发送方式`}
-                  >
-                    {invitationChannels.map((channel) => (
-                      <option key={channel}>{channel}</option>
-                    ))}
-                  </select>
-                  <span
-                    className={
-                      guest.respondedAt
-                        ? "responded"
-                        : guest.invitationCode
-                          ? "sent"
-                          : "not-sent"
-                    }
-                  >
-                    {guest.respondedAt
-                      ? `已在线回复 · ${guest.rsvp}`
-                      : guest.deliveryStatus && guest.deliveryStatus !== "未发送"
-                        ? `${guest.deliveryStatus}，等待宾客回复`
-                        : "尚未发送专属邀请"}
-                    {(guest.reminderCount || 0) > 0 ? ` · 已催办 ${guest.reminderCount} 次` : ""}
-                    {guest.dietary ? ` · ${guest.dietary}` : ""}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      guest.invitationCode
-                        ? void copyGuestInvitation(guest)
-                        : void createGuestInvitation(guest)
-                    }
-                    disabled={invitationBusyGuestId === guest.id}
-                  >
-                    {invitationBusyGuestId === guest.id ? (
-                      <LoaderCircle className="media-spin" size={14} aria-hidden="true" />
-                    ) : (
-                      <Link2 size={14} aria-hidden="true" />
-                    )}
-                    {guest.invitationCode ? "复制邀请" : "生成邀请"}
-                  </button>
-                  {guest.invitationCode && (
-                    <a
-                      href={`/rsvp/${guest.invitationCode}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      打开回执页
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <button type="button" className="ghost-action" onClick={addGuest}>
-            <Plus size={17} aria-hidden="true" />
-            新增宾客
-          </button>
-        </article>
-
-        <article className="panel business-panel" id="vendors">
-          <div className="section-title">
-            <Building2 size={19} aria-hidden="true" />
-            <h2>供应商管理</h2>
-          </div>
-          <p className="module-summary">
-            已签约 {signedVendorCount}/{vendorList.length} 家，报价 {currency(vendorQuoteTotal)}，
-            已支付 {currency(vendorPaidTotal)}。
-          </p>
-          {overdueVendorPayments > 0 && (
-            <div className="vendor-payment-warning" role="status">
-              <TriangleAlert size={15} aria-hidden="true" />
-              有 {overdueVendorPayments} 个付款节点已到期，请尽快确认。
-            </div>
-          )}
-          <div className="business-list">
-            {vendorList.map((vendor) => (
-              <div className="business-row vendor-row" key={vendor.id}>
-                <input
-                  value={vendor.category}
-                  onChange={(event) => updateVendor(vendor.id, { category: event.target.value })}
-                  aria-label="供应商类型"
-                />
-                <input
-                  value={vendor.name}
-                  onChange={(event) => updateVendor(vendor.id, { name: event.target.value })}
-                  aria-label="供应商名称"
-                />
-                <input
-                  value={vendor.contact}
-                  onChange={(event) => updateVendor(vendor.id, { contact: event.target.value })}
-                  aria-label={`${vendor.name}联系人`}
-                />
-                <input
-                  value={vendor.phone}
-                  onChange={(event) => updateVendor(vendor.id, { phone: event.target.value })}
-                  aria-label={`${vendor.name}电话`}
-                />
-                <label>
-                  报价
-                  <input
-                    type="number"
-                    min={0}
-                    value={vendor.quote}
-                    onChange={(event) => updateVendor(vendor.id, { quote: parseMoney(event.target.value) })}
-                  />
-                </label>
-                <label>
-                  已付款
-                  <input
-                    type="number"
-                    min={0}
-                    value={vendor.deposit}
-                    readOnly
-                  />
-                </label>
-                <label>
-                  状态
-                  <select
-                    value={vendor.status}
-                    onChange={(event) =>
-                      updateVendor(vendor.id, { status: event.target.value as VendorStatus })
-                    }
-                  >
-                    {vendorStatuses.map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="subtle-action vendor-detail-toggle"
-                  onClick={() =>
-                    setOpenVendorId((current) =>
-                      current === vendor.id ? null : vendor.id,
-                    )
-                  }
-                  aria-expanded={openVendorId === vendor.id}
-                >
-                  <ReceiptText size={15} aria-hidden="true" />
-                  合同与付款
-                </button>
-                <textarea
-                  value={vendor.notes}
-                  onChange={(event) => updateVendor(vendor.id, { notes: event.target.value })}
-                  aria-label={`${vendor.name}备注`}
-                />
-                <button
-                  type="button"
-                  className="delete-task"
-                  onClick={() => deleteVendor(vendor.id)}
-                  aria-label={`删除${vendor.name}`}
-                >
-                  <Trash2 size={15} aria-hidden="true" />
-                  <span>删除</span>
-                </button>
-                {openVendorId === vendor.id && (
-                  <div className="vendor-contract-payment">
-                    <section className="vendor-contract-tools">
-                      <div>
-                        <FileText size={18} aria-hidden="true" />
-                        <span>
-                          <strong>合同文件</strong>
-                          <small>
-                            {vendor.contractName || "支持 PDF、JPG、PNG，最大 20MB"}
-                          </small>
-                        </span>
-                      </div>
-                      <select
-                        value={vendor.contractStatus}
-                        onChange={(event) =>
-                          updateVendor(vendor.id, {
-                            contractStatus: event.target.value as VendorContractStatus,
-                          })
-                        }
-                        aria-label={`${vendor.name}合同状态`}
-                      >
-                        {vendorContractStatuses.map((status) => (
-                          <option key={status}>{status}</option>
-                        ))}
-                      </select>
-                      <label className="vendor-contract-upload">
-                        <Upload size={14} aria-hidden="true" />
-                        {contractBusyVendorId === vendor.id ? "上传中" : "上传合同"}
-                        <input
-                          type="file"
-                          accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
-                          disabled={contractBusyVendorId === vendor.id}
-                          onChange={(event) => {
-                            void uploadVendorContract(
-                              vendor.id,
-                              event.target.files?.[0] || null,
-                            );
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                      {vendor.contractUrl && (
-                        <a href={vendor.contractUrl} target="_blank" rel="noreferrer">
-                          查看合同
-                        </a>
-                      )}
-                    </section>
-
-                    <section className="vendor-payment-tools">
-                      <div className="vendor-payment-heading">
-                        <span>
-                          <ReceiptText size={17} aria-hidden="true" />
-                          <strong>付款计划</strong>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => addVendorPayment(vendor.id)}
-                        >
-                          <Plus size={14} aria-hidden="true" />
-                          新增节点
-                        </button>
-                      </div>
-                      <div className="vendor-payment-list">
-                        {vendor.payments.map((payment) => (
-                          <div className="vendor-payment-row" key={payment.id}>
-                            <input
-                              value={payment.label}
-                              onChange={(event) =>
-                                updateVendorPayment(vendor.id, payment.id, {
-                                  label: event.target.value,
-                                })
-                              }
-                              aria-label="付款节点名称"
-                            />
-                            <label>
-                              金额
-                              <input
-                                type="number"
-                                min={0}
-                                value={payment.amount}
-                                onChange={(event) =>
-                                  updateVendorPayment(vendor.id, payment.id, {
-                                    amount: parseMoney(event.target.value),
-                                  })
-                                }
-                              />
-                            </label>
-                            <label>
-                              到期日
-                              <input
-                                type="date"
-                                value={payment.dueDate}
-                                onChange={(event) =>
-                                  updateVendorPayment(vendor.id, payment.id, {
-                                    dueDate: event.target.value,
-                                  })
-                                }
-                              />
-                            </label>
-                            <select
-                              value={payment.status}
-                              onChange={(event) =>
-                                updateVendorPayment(vendor.id, payment.id, {
-                                  status: event.target.value as VendorPaymentStatus,
-                                })
-                              }
-                              aria-label={`${payment.label}状态`}
-                            >
-                              {vendorPaymentStatuses.map((status) => (
-                                <option key={status}>{status}</option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              className="icon-danger"
-                              onClick={() =>
-                                deleteVendorPayment(vendor.id, payment.id)
-                              }
-                              aria-label={`删除${payment.label}`}
-                              title="删除付款节点"
-                            >
-                              <Trash2 size={14} aria-hidden="true" />
-                            </button>
-                          </div>
-                        ))}
-                        {vendor.payments.length === 0 && (
-                          <p>暂未设置付款节点，可按定金、中期款和尾款拆分。</p>
-                        )}
-                      </div>
-                    </section>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          <button type="button" className="ghost-action" onClick={addVendor}>
-            <Plus size={17} aria-hidden="true" />
-            新增供应商
-          </button>
-        </article>
-
-        <article className="panel business-panel seating-panel" id="seating">
-          <div className="seating-heading">
-            <div>
+      {businessWeddingViews.includes(view as WeddingView) && (
+        <section className="business-grid">
+          {view === "guests" && (
+            <article className="panel business-panel" id="guests">
               <div className="section-title">
-                <LayoutDashboard size={19} aria-hidden="true" />
-                <h2>智能排桌</h2>
+                <UserPlus size={19} aria-hidden="true" />
+                <h2>宾客名单管理</h2>
               </div>
               <p className="module-summary">
-                共 {seatingPeople} 人 · {seatingTables.length} 桌 · {unseatedGuestCount} 位宾客待排桌
-                {overCapacityTables > 0 ? ` · ${overCapacityTables} 桌超员` : ""}
+                已确认 {confirmedGuestCount} 人到场，仍有 {pendingGuestCount} 位宾客待回复。
               </p>
-            </div>
-            <div className="seating-toolbar">
-              <button type="button" className="seating-primary" onClick={autoArrangeSeating}>
-                <Sparkles size={15} aria-hidden="true" />
-                一键智能排桌
-              </button>
-              <button type="button" onClick={addSeatingTable}>
-                <Plus size={15} aria-hidden="true" />
-                新增桌位
-              </button>
-              <button type="button" onClick={exportSeatingPlan}>
-                <Download size={15} aria-hidden="true" />
-                导出座位表
-              </button>
-            </div>
-          </div>
-          {(unseatedGuestCount > 0 || overCapacityTables > 0) && (
-            <div className="seating-warning" role="status">
-              <TriangleAlert size={16} aria-hidden="true" />
-              {overCapacityTables > 0
-                ? `有 ${overCapacityTables} 桌超过容量，请调整座位或增加桌位。`
-                : `还有 ${unseatedGuestCount} 位宾客未安排到有效桌位。`}
-            </div>
-          )}
-          <div className="seating-layout">
-            <div className="seating-table-list" aria-label="桌位配置">
-              {seatingSummaries.map((table) => (
-                <section
-                  className={`seating-table-row${table.remaining < 0 ? " is-over" : ""}`}
-                  key={table.id}
+              <div className="guest-rsvp-overview">
+                <span>
+                  <Link2 size={15} aria-hidden="true" />
+                  已建邀请 {invitedGuestCount} 份 · 已送达 {deliveredInvitationCount} 份 · 已收回执 {respondedGuestCount} 份
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void refreshGuestRsvps()}
+                  disabled={invitationBusyGuestId === 0}
                 >
-                  <div className="seating-table-fields">
+                  {invitationBusyGuestId === 0 ? (
+                    <LoaderCircle className="media-spin" size={14} aria-hidden="true" />
+                  ) : (
+                    <RefreshCw size={14} aria-hidden="true" />
+                  )}
+                  刷新回执
+                </button>
+              </div>
+              <div className="invitation-batch-toolbar" aria-label="邀请批量发送与催办">
+                <strong>已选 {selectedGuestIds.length} 人</strong>
+                <button type="button" onClick={selectPendingGuests}>
+                  <CheckSquare size={14} aria-hidden="true" />
+                  选择待回复
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedGuestIds([])}
+                  disabled={selectedGuestIds.length === 0}
+                >
+                  清除选择
+                </button>
+                <button
+                  type="button"
+                  className="batch-primary"
+                  onClick={() => void batchSendGuestInvitations(false)}
+                  disabled={batchInvitationBusy || selectedGuestIds.length === 0}
+                >
+                  {batchInvitationBusy ? (
+                    <LoaderCircle className="media-spin" size={14} aria-hidden="true" />
+                  ) : (
+                    <Send size={14} aria-hidden="true" />
+                  )}
+                  批量发送
+                </button>
+                <button
+                  type="button"
+                  className="batch-reminder"
+                  onClick={() => void batchSendGuestInvitations(true)}
+                  disabled={batchInvitationBusy || selectedGuestIds.length === 0}
+                >
+                  <Bell size={14} aria-hidden="true" />
+                  批量催办
+                </button>
+              </div>
+              <div className="business-list">
+                {guestList.map((guest) => (
+                  <div className="business-row guest-row" key={guest.id}>
+                    <label className="guest-select-field">
+                      <input
+                        type="checkbox"
+                        checked={selectedGuestIds.includes(guest.id)}
+                        onChange={() => toggleGuestSelection(guest.id)}
+                        aria-label={`选择${guest.name}`}
+                      />
+                      选择
+                    </label>
                     <input
-                      value={table.name}
-                      onChange={(event) =>
-                        updateSeatingTable(table.id, { name: event.target.value })
-                      }
-                      aria-label="桌位名称"
+                      value={guest.name}
+                      onChange={(event) => updateGuest(guest.id, { name: event.target.value })}
+                      aria-label="宾客姓名"
                     />
                     <input
-                      value={table.zone}
-                      onChange={(event) =>
-                        updateSeatingTable(table.id, { zone: event.target.value })
-                      }
-                      aria-label={`${table.name}区域`}
+                      value={guest.relation}
+                      onChange={(event) => updateGuest(guest.id, { relation: event.target.value })}
+                      aria-label="宾客关系"
                     />
                     <label>
-                      容量
+                      人数
                       <input
                         type="number"
                         min={1}
-                        max={30}
-                        value={table.capacity}
+                        value={guest.count}
+                        onChange={(event) => updateGuest(guest.id, { count: Number(event.target.value) })}
+                        aria-label={`${guest.name}人数`}
+                      />
+                    </label>
+                    <label>
+                      回执
+                      <select
+                        value={guest.rsvp}
+                        onChange={(event) => updateGuest(guest.id, { rsvp: event.target.value as GuestRsvp })}
+                        aria-label={`${guest.name}回执`}
+                      >
+                        {guestRsvps.map((rsvp) => (
+                          <option key={rsvp}>{rsvp}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="check-field">
+                      <input
+                        type="checkbox"
+                        checked={guest.companion}
+                        onChange={(event) => updateGuest(guest.id, { companion: event.target.checked })}
+                      />
+                      携伴
+                    </label>
+                    <input
+                      value={guest.table}
+                      onChange={(event) => updateGuest(guest.id, { table: event.target.value })}
+                      aria-label={`${guest.name}桌位偏好`}
+                    />
+                    <textarea
+                      value={guest.notes}
+                      onChange={(event) => updateGuest(guest.id, { notes: event.target.value })}
+                      aria-label={`${guest.name}备注`}
+                    />
+                    <button
+                      type="button"
+                      className="delete-task"
+                      onClick={() => deleteGuest(guest.id)}
+                      aria-label={`删除${guest.name}`}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                      <span>删除</span>
+                    </button>
+                    <div className="guest-invitation-actions">
+                      <input
+                        className="guest-contact-input"
+                        value={guest.contact || ""}
+                        onChange={(event) => updateGuest(guest.id, { contact: event.target.value })}
+                        placeholder="邮箱、手机号或微信标识"
+                        aria-label={`${guest.name}邀请联系方式`}
+                      />
+                      <select
+                        className="guest-channel-select"
+                        value={guest.invitationChannel || "链接"}
                         onChange={(event) =>
-                          updateSeatingTable(table.id, {
-                            capacity: Math.max(1, Number(event.target.value) || 1),
+                          updateGuest(guest.id, {
+                            invitationChannel: event.target.value as InvitationChannel,
                           })
                         }
+                        aria-label={`${guest.name}邀请发送方式`}
+                      >
+                        {invitationChannels.map((channel) => (
+                          <option key={channel}>{channel}</option>
+                        ))}
+                      </select>
+                      <span
+                        className={
+                          guest.respondedAt
+                            ? "responded"
+                            : guest.invitationCode
+                              ? "sent"
+                              : "not-sent"
+                        }
+                      >
+                        {guest.respondedAt
+                          ? `已在线回复 · ${guest.rsvp}`
+                          : guest.deliveryStatus && guest.deliveryStatus !== "未发送"
+                            ? `${guest.deliveryStatus}，等待宾客回复`
+                            : "尚未发送专属邀请"}
+                        {(guest.reminderCount || 0) > 0 ? ` · 已催办 ${guest.reminderCount} 次` : ""}
+                        {guest.dietary ? ` · ${guest.dietary}` : ""}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          guest.invitationCode
+                            ? void copyGuestInvitation(guest)
+                            : void createGuestInvitation(guest)
+                        }
+                        disabled={invitationBusyGuestId === guest.id}
+                      >
+                        {invitationBusyGuestId === guest.id ? (
+                          <LoaderCircle className="media-spin" size={14} aria-hidden="true" />
+                        ) : (
+                          <Link2 size={14} aria-hidden="true" />
+                        )}
+                        {guest.invitationCode ? "复制邀请" : "生成邀请"}
+                      </button>
+                      {guest.invitationCode && (
+                        <a
+                          href={`/rsvp/${guest.invitationCode}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          打开回执页
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="ghost-action" onClick={addGuest}>
+                <Plus size={17} aria-hidden="true" />
+                新增宾客
+              </button>
+            </article>
+          )}
+
+          {view === "vendors" && (
+            <article className="panel business-panel" id="vendors">
+              <div className="section-title">
+                <Building2 size={19} aria-hidden="true" />
+                <h2>供应商管理</h2>
+              </div>
+              <p className="module-summary">
+                已签约 {signedVendorCount}/{vendorList.length} 家，报价 {currency(vendorQuoteTotal)}，
+                已支付 {currency(vendorPaidTotal)}。
+              </p>
+              {overdueVendorPayments > 0 && (
+                <div className="vendor-payment-warning" role="status">
+                  <TriangleAlert size={15} aria-hidden="true" />
+                  有 {overdueVendorPayments} 个付款节点已到期，请尽快确认。
+                </div>
+              )}
+              <div className="business-list">
+                {vendorList.map((vendor) => (
+                  <div className="business-row vendor-row" key={vendor.id}>
+                    <input
+                      value={vendor.category}
+                      onChange={(event) => updateVendor(vendor.id, { category: event.target.value })}
+                      aria-label="供应商类型"
+                    />
+                    <input
+                      value={vendor.name}
+                      onChange={(event) => updateVendor(vendor.id, { name: event.target.value })}
+                      aria-label="供应商名称"
+                    />
+                    <input
+                      value={vendor.contact}
+                      onChange={(event) => updateVendor(vendor.id, { contact: event.target.value })}
+                      aria-label={`${vendor.name}联系人`}
+                    />
+                    <input
+                      value={vendor.phone}
+                      onChange={(event) => updateVendor(vendor.id, { phone: event.target.value })}
+                      aria-label={`${vendor.name}电话`}
+                    />
+                    <label>
+                      报价
+                      <input
+                        type="number"
+                        min={0}
+                        value={vendor.quote}
+                        onChange={(event) => updateVendor(vendor.id, { quote: parseMoney(event.target.value) })}
                       />
+                    </label>
+                    <label>
+                      已付款
+                      <input
+                        type="number"
+                        min={0}
+                        value={vendor.deposit}
+                        readOnly
+                      />
+                    </label>
+                    <label>
+                      状态
+                      <select
+                        value={vendor.status}
+                        onChange={(event) =>
+                          updateVendor(vendor.id, { status: event.target.value as VendorStatus })
+                        }
+                      >
+                        {vendorStatuses.map((status) => (
+                          <option key={status}>{status}</option>
+                        ))}
+                      </select>
                     </label>
                     <button
                       type="button"
+                      className="subtle-action vendor-detail-toggle"
+                      onClick={() =>
+                        setOpenVendorId((current) =>
+                          current === vendor.id ? null : vendor.id,
+                        )
+                      }
+                      aria-expanded={openVendorId === vendor.id}
+                    >
+                      <ReceiptText size={15} aria-hidden="true" />
+                      合同与付款
+                    </button>
+                    <textarea
+                      value={vendor.notes}
+                      onChange={(event) => updateVendor(vendor.id, { notes: event.target.value })}
+                      aria-label={`${vendor.name}备注`}
+                    />
+                    <button
+                      type="button"
+                      className="delete-task"
+                      onClick={() => deleteVendor(vendor.id)}
+                      aria-label={`删除${vendor.name}`}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                      <span>删除</span>
+                    </button>
+                    {openVendorId === vendor.id && (
+                      <div className="vendor-contract-payment">
+                        <section className="vendor-contract-tools">
+                          <div>
+                            <FileText size={18} aria-hidden="true" />
+                            <span>
+                              <strong>合同文件</strong>
+                              <small>
+                                {vendor.contractName || "支持 PDF、JPG、PNG，最大 20MB"}
+                              </small>
+                            </span>
+                          </div>
+                          <select
+                            value={vendor.contractStatus}
+                            onChange={(event) =>
+                              updateVendor(vendor.id, {
+                                contractStatus: event.target.value as VendorContractStatus,
+                              })
+                            }
+                            aria-label={`${vendor.name}合同状态`}
+                          >
+                            {vendorContractStatuses.map((status) => (
+                              <option key={status}>{status}</option>
+                            ))}
+                          </select>
+                          <label className="vendor-contract-upload">
+                            <Upload size={14} aria-hidden="true" />
+                            {contractBusyVendorId === vendor.id ? "上传中" : "上传合同"}
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                              disabled={contractBusyVendorId === vendor.id}
+                              onChange={(event) => {
+                                void uploadVendorContract(
+                                  vendor.id,
+                                  event.target.files?.[0] || null,
+                                );
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                          </label>
+                          {vendor.contractUrl && (
+                            <a href={vendor.contractUrl} target="_blank" rel="noreferrer">
+                              查看合同
+                            </a>
+                          )}
+                        </section>
+
+                        <section className="vendor-payment-tools">
+                          <div className="vendor-payment-heading">
+                            <span>
+                              <ReceiptText size={17} aria-hidden="true" />
+                              <strong>付款计划</strong>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => addVendorPayment(vendor.id)}
+                            >
+                              <Plus size={14} aria-hidden="true" />
+                              新增节点
+                            </button>
+                          </div>
+                          <div className="vendor-payment-list">
+                            {vendor.payments.map((payment) => (
+                              <div className="vendor-payment-row" key={payment.id}>
+                                <input
+                                  value={payment.label}
+                                  onChange={(event) =>
+                                    updateVendorPayment(vendor.id, payment.id, {
+                                      label: event.target.value,
+                                    })
+                                  }
+                                  aria-label="付款节点名称"
+                                />
+                                <label>
+                                  金额
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={payment.amount}
+                                    onChange={(event) =>
+                                      updateVendorPayment(vendor.id, payment.id, {
+                                        amount: parseMoney(event.target.value),
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label>
+                                  到期日
+                                  <input
+                                    type="date"
+                                    value={payment.dueDate}
+                                    onChange={(event) =>
+                                      updateVendorPayment(vendor.id, payment.id, {
+                                        dueDate: event.target.value,
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <select
+                                  value={payment.status}
+                                  onChange={(event) =>
+                                    updateVendorPayment(vendor.id, payment.id, {
+                                      status: event.target.value as VendorPaymentStatus,
+                                    })
+                                  }
+                                  aria-label={`${payment.label}状态`}
+                                >
+                                  {vendorPaymentStatuses.map((status) => (
+                                    <option key={status}>{status}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  className="icon-danger"
+                                  onClick={() =>
+                                    deleteVendorPayment(vendor.id, payment.id)
+                                  }
+                                  aria-label={`删除${payment.label}`}
+                                  title="删除付款节点"
+                                >
+                                  <Trash2 size={14} aria-hidden="true" />
+                                </button>
+                              </div>
+                            ))}
+                            {vendor.payments.length === 0 && (
+                              <p>暂未设置付款节点，可按定金、中期款和尾款拆分。</p>
+                            )}
+                          </div>
+                        </section>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="ghost-action" onClick={addVendor}>
+                <Plus size={17} aria-hidden="true" />
+                新增供应商
+              </button>
+            </article>
+          )}
+
+          {view === "seating" && (
+            <article className="panel business-panel seating-panel" id="seating">
+              <div className="seating-heading">
+                <div>
+                  <div className="section-title">
+                    <LayoutDashboard size={19} aria-hidden="true" />
+                    <h2>智能排桌</h2>
+                  </div>
+                  <p className="module-summary">
+                    共 {seatingPeople} 人 · {seatingTables.length} 桌 · {unseatedGuestCount} 位宾客待排桌
+                    {overCapacityTables > 0 ? ` · ${overCapacityTables} 桌超员` : ""}
+                  </p>
+                </div>
+                <div className="seating-toolbar">
+                  <button type="button" className="seating-primary" onClick={autoArrangeSeating}>
+                    <Sparkles size={15} aria-hidden="true" />
+                    一键智能排桌
+                  </button>
+                  <button type="button" onClick={addSeatingTable}>
+                    <Plus size={15} aria-hidden="true" />
+                    新增桌位
+                  </button>
+                  <button type="button" onClick={exportSeatingPlan}>
+                    <Download size={15} aria-hidden="true" />
+                    导出座位表
+                  </button>
+                </div>
+              </div>
+              {(unseatedGuestCount > 0 || overCapacityTables > 0) && (
+                <div className="seating-warning" role="status">
+                  <TriangleAlert size={16} aria-hidden="true" />
+                  {overCapacityTables > 0
+                    ? `有 ${overCapacityTables} 桌超过容量，请调整座位或增加桌位。`
+                    : `还有 ${unseatedGuestCount} 位宾客未安排到有效桌位。`}
+                </div>
+              )}
+              <div className="seating-layout">
+                <div className="seating-table-list" aria-label="桌位配置">
+                  {seatingSummaries.map((table) => (
+                    <section
+                      className={`seating-table-row${table.remaining < 0 ? " is-over" : ""}`}
+                      key={table.id}
+                    >
+                      <div className="seating-table-fields">
+                        <input
+                          value={table.name}
+                          onChange={(event) =>
+                            updateSeatingTable(table.id, { name: event.target.value })
+                          }
+                          aria-label="桌位名称"
+                        />
+                        <input
+                          value={table.zone}
+                          onChange={(event) =>
+                            updateSeatingTable(table.id, { zone: event.target.value })
+                          }
+                          aria-label={`${table.name}区域`}
+                        />
+                        <label>
+                          容量
+                          <input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={table.capacity}
+                            onChange={(event) =>
+                              updateSeatingTable(table.id, {
+                                capacity: Math.max(1, Number(event.target.value) || 1),
+                              })
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          className="icon-danger"
+                          onClick={() => deleteSeatingTable(table.id)}
+                          aria-label={`删除${table.name}`}
+                          title="删除桌位"
+                        >
+                          <Trash2 size={14} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <div className="seating-occupancy">
+                        <span>
+                          已排 {table.occupied}/{table.capacity} 人
+                        </span>
+                        <div aria-hidden="true">
+                          <i
+                            style={{
+                              width: `${Math.min(100, Math.round((table.occupied / table.capacity) * 100))}%`,
+                            }}
+                          />
+                        </div>
+                        <strong>{table.remaining >= 0 ? `余 ${table.remaining}` : `超 ${Math.abs(table.remaining)}`}</strong>
+                      </div>
+                      <div className="seating-guest-chips">
+                        {table.guests.map((guest) => (
+                          <span key={guest.id}>{guest.name} · {guest.count}人</span>
+                        ))}
+                        {table.guests.length === 0 && <small>暂未安排宾客</small>}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+                <aside className="seating-assignment-list">
+                  <div className="seating-assignment-title">
+                    <UsersRound size={17} aria-hidden="true" />
+                    <strong>宾客换桌</strong>
+                  </div>
+                  {guestList
+                    .filter((guest) => guest.rsvp !== "不参加")
+                    .map((guest) => (
+                      <label key={guest.id}>
+                        <span>
+                          <strong>{guest.name}</strong>
+                          <small>{guest.relation} · {guest.count} 人</small>
+                        </span>
+                        <select
+                          value={seatingTables.some((table) => table.name === guest.table) ? guest.table : "待排桌"}
+                          onChange={(event) => assignGuestToTable(guest.id, event.target.value)}
+                        >
+                          <option>待排桌</option>
+                          {seatingTables.map((table) => (
+                            <option key={table.id} value={table.name}>{table.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                </aside>
+              </div>
+            </article>
+          )}
+
+          {view === "timeline" && (
+            <article className="panel business-panel timeline-business" id="timeline">
+              <div className="section-title">
+                <CalendarDays size={19} aria-hidden="true" />
+                <h2>婚礼当天流程表</h2>
+              </div>
+              <p className="module-summary">
+                已确认 {confirmedTimelineCount}/{weddingTimeline.length} 个当天节点，适合发给伴郎伴娘和供应商。
+              </p>
+              <div className="business-list">
+                {weddingTimeline.map((event) => (
+                  <div className="business-row event-row" key={event.id}>
+                    <input
+                      value={event.time}
+                      onChange={(inputEvent) =>
+                        updateWeddingEvent(event.id, { time: inputEvent.target.value })
+                      }
+                      aria-label={`${event.title}时间`}
+                    />
+                    <input
+                      value={event.title}
+                      onChange={(inputEvent) =>
+                        updateWeddingEvent(event.id, { title: inputEvent.target.value })
+                      }
+                      aria-label="流程标题"
+                    />
+                    <input
+                      value={event.owner}
+                      onChange={(inputEvent) =>
+                        updateWeddingEvent(event.id, { owner: inputEvent.target.value })
+                      }
+                      aria-label={`${event.title}负责人`}
+                    />
+                    <input
+                      value={event.location}
+                      onChange={(inputEvent) =>
+                        updateWeddingEvent(event.id, { location: inputEvent.target.value })
+                      }
+                      aria-label={`${event.title}地点`}
+                    />
+                    <label>
+                      状态
+                      <select
+                        value={event.status}
+                        onChange={(inputEvent) =>
+                          updateWeddingEvent(event.id, { status: inputEvent.target.value as TaskStatus })
+                        }
+                      >
+                        {taskStatuses.map((status) => (
+                          <option key={status}>{status}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <textarea
+                      value={event.notes}
+                      onChange={(inputEvent) =>
+                        updateWeddingEvent(event.id, { notes: inputEvent.target.value })
+                      }
+                      aria-label={`${event.title}备注`}
+                    />
+                    <button
+                      type="button"
+                      className="delete-task"
+                      onClick={() => deleteWeddingEvent(event.id)}
+                      aria-label={`删除${event.title}`}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                      <span>删除</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="ghost-action" onClick={addWeddingEvent}>
+                <Plus size={17} aria-hidden="true" />
+                新增流程
+              </button>
+            </article>
+          )}
+
+          {view === "wedding-command" && (
+            <article className="panel business-panel command-center-panel" id="wedding-command">
+              <div className="command-center-heading">
+                <div>
+                  <div className="section-title">
+                    <MonitorPlay size={19} aria-hidden="true" />
+                    <h2>婚礼当天指挥中心</h2>
+                  </div>
+                  <p className="module-summary">
+                    流程完成 {confirmedTimelineCount}/{weddingTimeline.length} · 延迟 {delayedEventCount} 项 ·
+                    物料确认 {checkedSupplyCount}/{commandCenter.supplies.length}
+                  </p>
+                </div>
+                <div className="command-center-actions">
+                  <time>{commandClock || "--:--:--"}</time>
+                  <button
+                    type="button"
+                    className={commandCenter.liveMode ? "live-active" : ""}
+                    onClick={() =>
+                      setCommandCenter((current) => ({ ...current, liveMode: !current.liveMode }))
+                    }
+                  >
+                    <Play size={14} aria-hidden="true" />
+                    {commandCenter.liveMode ? "指挥模式运行中" : "开启指挥模式"}
+                  </button>
+                  <button type="button" onClick={exportWeddingCommandPlan}>
+                    <Download size={14} aria-hidden="true" />
+                    导出执行表
+                  </button>
+                </div>
+              </div>
+
+              <section className="command-now" aria-live="polite">
+                <span>{commandCenter.liveMode ? "现场进行中" : "下一流程"}</span>
+                {commandActiveEvent ? (
+                  <div>
+                    <strong>{commandActiveEvent.time} · {commandActiveEvent.title}</strong>
+                    <small>{commandActiveEvent.owner} · {commandActiveEvent.location}</small>
+                  </div>
+                ) : (
+                  <div><strong>所有流程已完成</strong></div>
+                )}
+              </section>
+
+              <div className="command-event-list">
+                {weddingTimeline.map((event) => (
+                  <div className={`command-event-row status-${event.status}`} key={event.id}>
+                    <time>{event.time}</time>
+                    <div>
+                      <strong>{event.title}</strong>
+                      <small>{event.owner} · {event.location}</small>
+                    </div>
+                    <input
+                      value={event.phone || ""}
+                      onChange={(inputEvent) =>
+                        updateWeddingEvent(event.id, { phone: inputEvent.target.value })
+                      }
+                      placeholder="负责人电话"
+                      aria-label={`${event.title}负责人电话`}
+                    />
+                    <span className="command-event-state">
+                      {event.status}{event.delayMinutes ? ` · 延迟${event.delayMinutes}分钟` : ""}
+                    </span>
+                    <div className="command-event-actions">
+                      <button
+                        type="button"
+                        onClick={() => setWeddingEventCommandStatus(event.id, "进行中")}
+                        disabled={event.status === "进行中"}
+                      >
+                        开始
+                      </button>
+                      <button
+                        type="button"
+                        className="command-done"
+                        onClick={() => setWeddingEventCommandStatus(event.id, "已完成")}
+                        disabled={event.status === "已完成"}
+                      >
+                        完成
+                      </button>
+                      <button type="button" onClick={() => delayWeddingEvent(event.id)}>
+                        延迟10分钟
+                      </button>
+                      {event.phone && (
+                        <a href={`tel:${event.phone}`} aria-label={`拨打${event.owner}电话`}>
+                          拨打
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="command-support-grid">
+                <section className="command-supplies">
+                  <div className="command-subheading">
+                    <ClipboardCheck size={17} aria-hidden="true" />
+                    <strong>现场物料核对</strong>
+                    <button type="button" onClick={addCommandSupply} aria-label="新增现场物料" title="新增物料">
+                      <Plus size={14} aria-hidden="true" />
+                    </button>
+                  </div>
+                  {commandCenter.supplies.map((item) => (
+                    <div className="command-supply-row" key={item.id}>
+                      <input
+                        type="checkbox"
+                        checked={item.checked}
+                        onChange={(event) => updateCommandSupply(item.id, { checked: event.target.checked })}
+                        aria-label={`确认${item.title}`}
+                      />
+                      <input
+                        value={item.title}
+                        onChange={(event) => updateCommandSupply(item.id, { title: event.target.value })}
+                        aria-label="物料名称"
+                      />
+                      <input
+                        value={item.owner}
+                        onChange={(event) => updateCommandSupply(item.id, { owner: event.target.value })}
+                        aria-label={`${item.title}负责人`}
+                      />
+                      <button type="button" className="icon-danger" onClick={() => deleteCommandSupply(item.id)} aria-label={`删除${item.title}`}>
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="command-contacts">
+                  <div className="command-subheading">
+                    <CircleUserRound size={17} aria-hidden="true" />
+                    <strong>紧急联系人</strong>
+                    <button type="button" onClick={addEmergencyContact} aria-label="新增紧急联系人" title="新增联系人">
+                      <Plus size={14} aria-hidden="true" />
+                    </button>
+                  </div>
+                  {commandCenter.contacts.map((contact) => (
+                    <div className="command-contact-row" key={contact.id}>
+                      <input value={contact.role} onChange={(event) => updateEmergencyContact(contact.id, { role: event.target.value })} aria-label="联系人角色" />
+                      <input value={contact.name} onChange={(event) => updateEmergencyContact(contact.id, { name: event.target.value })} aria-label="联系人姓名" />
+                      <input value={contact.phone} onChange={(event) => updateEmergencyContact(contact.id, { phone: event.target.value })} placeholder="手机号" aria-label={`${contact.name}电话`} />
+                      {contact.phone && <a href={`tel:${contact.phone}`}>拨打</a>}
+                      <button type="button" className="icon-danger" onClick={() => deleteEmergencyContact(contact.id)} aria-label={`删除${contact.name}`}>
+                        <Trash2 size={14} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ))}
+                </section>
+              </div>
+
+              <label className="command-incident-note">
+                <span>现场异常与交接记录</span>
+                <textarea
+                  value={commandCenter.incidentNote}
+                  onChange={(event) =>
+                    setCommandCenter((current) => ({ ...current, incidentNote: event.target.value }))
+                  }
+                  placeholder="记录临时变更、供应商异常、宾客需求和后续交接事项"
+                />
+              </label>
+            </article>
+          )}
+
+          {view === "recycle-bin" && (
+            <article className="panel business-panel recycle-panel" id="recycle-bin">
+              <div className="recycle-heading">
+                <div className="section-title">
+                  <Trash2 size={19} aria-hidden="true" />
+                  <h2>回收站与撤销</h2>
+                </div>
+                <div>
+                  {lastDeletedId && recycleBin.some((item) => item.id === lastDeletedId) && (
+                    <button
+                      type="button"
+                      className="recycle-undo"
+                      onClick={() => restoreRecycleItem(lastDeletedId)}
+                    >
+                      <Undo2 size={15} aria-hidden="true" />
+                      撤销上次删除
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="recycle-empty"
+                    onClick={() => void emptyRecycleBin()}
+                    disabled={recycleBin.length === 0}
+                  >
+                    清空回收站
+                  </button>
+                </div>
+              </div>
+              <p className="module-summary">
+                删除内容保留 30 天；恢复会回到原模块，永久删除会同步清理云端文件。
+              </p>
+              <div className="recycle-list">
+                {recycleBin.map((item) => (
+                  <div className="recycle-row" key={item.id}>
+                    <span className={`recycle-type type-${item.entityType}`}>
+                      {item.entityType === "task"
+                        ? "任务"
+                        : item.entityType === "budget"
+                          ? "预算"
+                          : item.entityType === "guest"
+                            ? "宾客"
+                            : item.entityType === "vendor"
+                              ? "供应商"
+                              : item.entityType === "timeline"
+                                ? "流程"
+                                : item.entityType === "copywriting"
+                                  ? "文案"
+                                  : "素材"}
+                    </span>
+                    <div>
+                      <strong>{item.label}</strong>
+                      <small>
+                        删除于 {new Date(item.deletedAt).toLocaleString("zh-CN")} ·
+                        {Math.max(
+                          1,
+                          Math.ceil(
+                            (new Date(item.expiresAt).getTime() - Date.now()) /
+                              (24 * 60 * 60 * 1000),
+                          ),
+                        )}{" "}
+                        天后清理
+                      </small>
+                    </div>
+                    <button type="button" onClick={() => restoreRecycleItem(item.id)}>
+                      <Undo2 size={14} aria-hidden="true" />
+                      恢复
+                    </button>
+                    <button
+                      type="button"
                       className="icon-danger"
-                      onClick={() => deleteSeatingTable(table.id)}
-                      aria-label={`删除${table.name}`}
-                      title="删除桌位"
+                      onClick={() => void permanentlyDeleteRecycleItem(item.id)}
+                      aria-label={`永久删除${item.label}`}
+                      title="永久删除"
                     >
                       <Trash2 size={14} aria-hidden="true" />
                     </button>
                   </div>
-                  <div className="seating-occupancy">
-                    <span>
-                      已排 {table.occupied}/{table.capacity} 人
-                    </span>
-                    <div aria-hidden="true">
-                      <i
-                        style={{
-                          width: `${Math.min(100, Math.round((table.occupied / table.capacity) * 100))}%`,
-                        }}
-                      />
-                    </div>
-                    <strong>{table.remaining >= 0 ? `余 ${table.remaining}` : `超 ${Math.abs(table.remaining)}`}</strong>
-                  </div>
-                  <div className="seating-guest-chips">
-                    {table.guests.map((guest) => (
-                      <span key={guest.id}>{guest.name} · {guest.count}人</span>
-                    ))}
-                    {table.guests.length === 0 && <small>暂未安排宾客</small>}
-                  </div>
-                </section>
-              ))}
-            </div>
-            <aside className="seating-assignment-list">
-              <div className="seating-assignment-title">
-                <UsersRound size={17} aria-hidden="true" />
-                <strong>宾客换桌</strong>
-              </div>
-              {guestList
-                .filter((guest) => guest.rsvp !== "不参加")
-                .map((guest) => (
-                  <label key={guest.id}>
-                    <span>
-                      <strong>{guest.name}</strong>
-                      <small>{guest.relation} · {guest.count} 人</small>
-                    </span>
-                    <select
-                      value={seatingTables.some((table) => table.name === guest.table) ? guest.table : "待排桌"}
-                      onChange={(event) => assignGuestToTable(guest.id, event.target.value)}
-                    >
-                      <option>待排桌</option>
-                      {seatingTables.map((table) => (
-                        <option key={table.id} value={table.name}>{table.name}</option>
-                      ))}
-                    </select>
-                  </label>
                 ))}
-            </aside>
-          </div>
-        </article>
-
-        <article className="panel business-panel timeline-business">
-          <div className="section-title">
-            <CalendarDays size={19} aria-hidden="true" />
-            <h2>婚礼当天流程表</h2>
-          </div>
-          <p className="module-summary">
-            已确认 {confirmedTimelineCount}/{weddingTimeline.length} 个当天节点，适合发给伴郎伴娘和供应商。
-          </p>
-          <div className="business-list">
-            {weddingTimeline.map((event) => (
-              <div className="business-row event-row" key={event.id}>
-                <input
-                  value={event.time}
-                  onChange={(inputEvent) =>
-                    updateWeddingEvent(event.id, { time: inputEvent.target.value })
-                  }
-                  aria-label={`${event.title}时间`}
-                />
-                <input
-                  value={event.title}
-                  onChange={(inputEvent) =>
-                    updateWeddingEvent(event.id, { title: inputEvent.target.value })
-                  }
-                  aria-label="流程标题"
-                />
-                <input
-                  value={event.owner}
-                  onChange={(inputEvent) =>
-                    updateWeddingEvent(event.id, { owner: inputEvent.target.value })
-                  }
-                  aria-label={`${event.title}负责人`}
-                />
-                <input
-                  value={event.location}
-                  onChange={(inputEvent) =>
-                    updateWeddingEvent(event.id, { location: inputEvent.target.value })
-                  }
-                  aria-label={`${event.title}地点`}
-                />
-                <label>
-                  状态
-                  <select
-                    value={event.status}
-                    onChange={(inputEvent) =>
-                      updateWeddingEvent(event.id, { status: inputEvent.target.value as TaskStatus })
-                    }
-                  >
-                    {taskStatuses.map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
-                  </select>
-                </label>
-                <textarea
-                  value={event.notes}
-                  onChange={(inputEvent) =>
-                    updateWeddingEvent(event.id, { notes: inputEvent.target.value })
-                  }
-                  aria-label={`${event.title}备注`}
-                />
-                <button
-                  type="button"
-                  className="delete-task"
-                  onClick={() => deleteWeddingEvent(event.id)}
-                  aria-label={`删除${event.title}`}
-                >
-                  <Trash2 size={15} aria-hidden="true" />
-                  <span>删除</span>
-                </button>
+                {recycleBin.length === 0 && (
+                  <div className="recycle-empty-state">
+                    <CheckCircle2 size={20} aria-hidden="true" />
+                    <span>回收站为空，删除内容会暂存在这里。</span>
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
-          <button type="button" className="ghost-action" onClick={addWeddingEvent}>
-            <Plus size={17} aria-hidden="true" />
-            新增流程
-          </button>
-        </article>
+            </article>
+          )}
+        </section>
+      )}
 
-        <article className="panel business-panel command-center-panel" id="wedding-command">
-          <div className="command-center-heading">
-            <div>
-              <div className="section-title">
-                <MonitorPlay size={19} aria-hidden="true" />
-                <h2>婚礼当天指挥中心</h2>
-              </div>
-              <p className="module-summary">
-                流程完成 {confirmedTimelineCount}/{weddingTimeline.length} · 延迟 {delayedEventCount} 项 ·
-                物料确认 {checkedSupplyCount}/{commandCenter.supplies.length}
-              </p>
-            </div>
-            <div className="command-center-actions">
-              <time>{commandClock || "--:--:--"}</time>
-              <button
-                type="button"
-                className={commandCenter.liveMode ? "live-active" : ""}
-                onClick={() =>
-                  setCommandCenter((current) => ({ ...current, liveMode: !current.liveMode }))
-                }
-              >
-                <Play size={14} aria-hidden="true" />
-                {commandCenter.liveMode ? "指挥模式运行中" : "开启指挥模式"}
-              </button>
-              <button type="button" onClick={exportWeddingCommandPlan}>
-                <Download size={14} aria-hidden="true" />
-                导出执行表
-              </button>
-            </div>
-          </div>
+      {view === "business" && (
+        <section className="workspace-directory" aria-label="婚礼业务模块">
+          {businessWeddingViews.map((item) => (
+            <a className="workspace-directory-card" href={weddingPageHref(item)} onClick={handlePageLink} key={item}>
+              <h2>{weddingPages[item].title}</h2>
+              <p>{weddingPages[item].description}</p>
+              <span>进入工具<ChevronRight size={16} aria-hidden="true" /></span>
+            </a>
+          ))}
+        </section>
+      )}
 
-          <section className="command-now" aria-live="polite">
-            <span>{commandCenter.liveMode ? "现场进行中" : "下一流程"}</span>
-            {commandActiveEvent ? (
-              <div>
-                <strong>{commandActiveEvent.time} · {commandActiveEvent.title}</strong>
-                <small>{commandActiveEvent.owner} · {commandActiveEvent.location}</small>
-              </div>
-            ) : (
-              <div><strong>所有流程已完成</strong></div>
-            )}
-          </section>
-
-          <div className="command-event-list">
-            {weddingTimeline.map((event) => (
-              <div className={`command-event-row status-${event.status}`} key={event.id}>
-                <time>{event.time}</time>
-                <div>
-                  <strong>{event.title}</strong>
-                  <small>{event.owner} · {event.location}</small>
-                </div>
-                <input
-                  value={event.phone || ""}
-                  onChange={(inputEvent) =>
-                    updateWeddingEvent(event.id, { phone: inputEvent.target.value })
-                  }
-                  placeholder="负责人电话"
-                  aria-label={`${event.title}负责人电话`}
-                />
-                <span className="command-event-state">
-                  {event.status}{event.delayMinutes ? ` · 延迟${event.delayMinutes}分钟` : ""}
-                </span>
-                <div className="command-event-actions">
-                  <button
-                    type="button"
-                    onClick={() => setWeddingEventCommandStatus(event.id, "进行中")}
-                    disabled={event.status === "进行中"}
-                  >
-                    开始
-                  </button>
-                  <button
-                    type="button"
-                    className="command-done"
-                    onClick={() => setWeddingEventCommandStatus(event.id, "已完成")}
-                    disabled={event.status === "已完成"}
-                  >
-                    完成
-                  </button>
-                  <button type="button" onClick={() => delayWeddingEvent(event.id)}>
-                    延迟10分钟
-                  </button>
-                  {event.phone && (
-                    <a href={`tel:${event.phone}`} aria-label={`拨打${event.owner}电话`}>
-                      拨打
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="command-support-grid">
-            <section className="command-supplies">
-              <div className="command-subheading">
-                <ClipboardCheck size={17} aria-hidden="true" />
-                <strong>现场物料核对</strong>
-                <button type="button" onClick={addCommandSupply} aria-label="新增现场物料" title="新增物料">
-                  <Plus size={14} aria-hidden="true" />
-                </button>
-              </div>
-              {commandCenter.supplies.map((item) => (
-                <div className="command-supply-row" key={item.id}>
-                  <input
-                    type="checkbox"
-                    checked={item.checked}
-                    onChange={(event) => updateCommandSupply(item.id, { checked: event.target.checked })}
-                    aria-label={`确认${item.title}`}
-                  />
-                  <input
-                    value={item.title}
-                    onChange={(event) => updateCommandSupply(item.id, { title: event.target.value })}
-                    aria-label="物料名称"
-                  />
-                  <input
-                    value={item.owner}
-                    onChange={(event) => updateCommandSupply(item.id, { owner: event.target.value })}
-                    aria-label={`${item.title}负责人`}
-                  />
-                  <button type="button" className="icon-danger" onClick={() => deleteCommandSupply(item.id)} aria-label={`删除${item.title}`}>
-                    <Trash2 size={14} aria-hidden="true" />
-                  </button>
-                </div>
-              ))}
-            </section>
-
-            <section className="command-contacts">
-              <div className="command-subheading">
-                <CircleUserRound size={17} aria-hidden="true" />
-                <strong>紧急联系人</strong>
-                <button type="button" onClick={addEmergencyContact} aria-label="新增紧急联系人" title="新增联系人">
-                  <Plus size={14} aria-hidden="true" />
-                </button>
-              </div>
-              {commandCenter.contacts.map((contact) => (
-                <div className="command-contact-row" key={contact.id}>
-                  <input value={contact.role} onChange={(event) => updateEmergencyContact(contact.id, { role: event.target.value })} aria-label="联系人角色" />
-                  <input value={contact.name} onChange={(event) => updateEmergencyContact(contact.id, { name: event.target.value })} aria-label="联系人姓名" />
-                  <input value={contact.phone} onChange={(event) => updateEmergencyContact(contact.id, { phone: event.target.value })} placeholder="手机号" aria-label={`${contact.name}电话`} />
-                  {contact.phone && <a href={`tel:${contact.phone}`}>拨打</a>}
-                  <button type="button" className="icon-danger" onClick={() => deleteEmergencyContact(contact.id)} aria-label={`删除${contact.name}`}>
-                    <Trash2 size={14} aria-hidden="true" />
-                  </button>
-                </div>
-              ))}
-            </section>
-          </div>
-
-          <label className="command-incident-note">
-            <span>现场异常与交接记录</span>
-            <textarea
-              value={commandCenter.incidentNote}
-              onChange={(event) =>
-                setCommandCenter((current) => ({ ...current, incidentNote: event.target.value }))
-              }
-              placeholder="记录临时变更、供应商异常、宾客需求和后续交接事项"
-            />
-          </label>
-        </article>
-
-        <article className="panel business-panel recycle-panel" id="recycle-bin">
-          <div className="recycle-heading">
-            <div className="section-title">
-              <Trash2 size={19} aria-hidden="true" />
-              <h2>回收站与撤销</h2>
-            </div>
-            <div>
-              {lastDeletedId && recycleBin.some((item) => item.id === lastDeletedId) && (
-                <button
-                  type="button"
-                  className="recycle-undo"
-                  onClick={() => restoreRecycleItem(lastDeletedId)}
-                >
-                  <Undo2 size={15} aria-hidden="true" />
-                  撤销上次删除
-                </button>
-              )}
-              <button
-                type="button"
-                className="recycle-empty"
-                onClick={() => void emptyRecycleBin()}
-                disabled={recycleBin.length === 0}
-              >
-                清空回收站
-              </button>
-            </div>
-          </div>
-          <p className="module-summary">
-            删除内容保留 30 天；恢复会回到原模块，永久删除会同步清理云端文件。
-          </p>
-          <div className="recycle-list">
-            {recycleBin.map((item) => (
-              <div className="recycle-row" key={item.id}>
-                <span className={`recycle-type type-${item.entityType}`}>
-                  {item.entityType === "task"
-                    ? "任务"
-                    : item.entityType === "budget"
-                      ? "预算"
-                      : item.entityType === "guest"
-                        ? "宾客"
-                        : item.entityType === "vendor"
-                          ? "供应商"
-                          : item.entityType === "timeline"
-                            ? "流程"
-                            : item.entityType === "copywriting"
-                              ? "文案"
-                              : "素材"}
-                </span>
-                <div>
-                  <strong>{item.label}</strong>
-                  <small>
-                    删除于 {new Date(item.deletedAt).toLocaleString("zh-CN")} ·
-                    {Math.max(
-                      1,
-                      Math.ceil(
-                        (new Date(item.expiresAt).getTime() - Date.now()) /
-                          (24 * 60 * 60 * 1000),
-                      ),
-                    )}{" "}
-                    天后清理
-                  </small>
-                </div>
-                <button type="button" onClick={() => restoreRecycleItem(item.id)}>
-                  <Undo2 size={14} aria-hidden="true" />
-                  恢复
-                </button>
-                <button
-                  type="button"
-                  className="icon-danger"
-                  onClick={() => void permanentlyDeleteRecycleItem(item.id)}
-                  aria-label={`永久删除${item.label}`}
-                  title="永久删除"
-                >
-                  <Trash2 size={14} aria-hidden="true" />
-                </button>
-              </div>
-            ))}
-            {recycleBin.length === 0 && (
-              <div className="recycle-empty-state">
-                <CheckCircle2 size={20} aria-hidden="true" />
-                <span>回收站为空，删除内容会暂存在这里。</span>
-              </div>
-            )}
-          </div>
-        </article>
-      </section>
+      {view === "admin" && !currentUser?.isAdmin && (
+        <section className="workspace-access-panel panel">
+          <h2>请使用管理员账号登录</h2>
+          <p>运营后台仅向管理员开放。</p>
+          <a href={weddingPageHref("account")} onClick={handlePageLink}>前往登录</a>
+        </section>
+      )}
 
       <footer className="footer-note">
         <Sparkles size={16} aria-hidden="true" />
-        喜缘会自动保存这台设备上的备婚进度，刷新页面后也能继续。
+        {view === "home" ? "从计划到婚礼，喜缘陪你们一起完成。" : "喜缘会自动保存这台设备上的备婚进度，刷新页面后也能继续。"}
       </footer>
     </main>
   );
