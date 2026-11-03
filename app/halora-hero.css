@@ -1381,6 +1381,24 @@ body:has(.xiyuan-page) {
 }
 .workspace-page .assistant-dock { margin-top: 0; padding: 0 0 12px; }
 .media-library-toolbar { scroll-margin-top: 24px; }
+.wedding-photo-page {
+  min-height: min(680px, calc(100svh - 180px));
+}
+.wedding-photo-page .media-studio-heading {
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(228, 193, 130, .28);
+}
+.wedding-photo-page .media-library {
+  margin-top: 18px;
+}
+.wedding-photo-page .media-empty-state {
+  grid-column: 1 / -1;
+}
+@media (max-width: 820px) {
+  .workspace-tabs a[aria-current="page"] {
+    scroll-margin-inline: 16px;
+  }
+}
 .assistant-dock-inner { --halo-ink: #4c101b; --halo-copy: #715248; }
 .workspace-page .auth-panel {
   position: relative;

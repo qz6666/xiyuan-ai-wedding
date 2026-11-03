@@ -97,7 +97,7 @@ test("server-renders the Xiyuan wedding landing page", async () => {
   assert.match(html, /href="\/workspace\/plan"/);
   assert.match(html, /href="\/workspace\/copywriting"/);
   assert.match(html, /href="\/workspace\/media-studio"/);
-  assert.match(html, /href="\/workspace\/media-studio#photo-library"/);
+  assert.match(html, /href="\/workspace\/wedding-photo"/);
   assert.match(html, /href="\/wedding-story\/"/);
   assert.doesNotMatch(html, /href="#(?:profile|plan|details|copywriting|media-studio|wedding-story|business|collaboration)"/);
   assert.doesNotMatch(html, /<(?:iframe|input|textarea|select)\b/);
@@ -114,6 +114,7 @@ test("opens each wedding tool on its own page without the landing hero or unrela
     ["budget", "婚礼预算", "预算安心感", "budget"],
     ["copywriting", "AI 文案", "AI 文案生成区", "copywriting"],
     ["media-studio", "AI 影像", "AI 视觉与 3D 工作台", "media-studio"],
+    ["wedding-photo", "婚礼照片", "上传婚礼照片和影像素材", "wedding-photo"],
     ["collaboration", "协助清单", "不再遗漏的协作清单", "collaboration"],
     ["guests", "宾客名单", "生成邀请", "guests"],
     ["vendors", "供应商管理", "合同与付款", "vendors"],
@@ -133,6 +134,7 @@ test("opens each wedding tool on its own page without the landing hero or unrela
     assert.match(html, /返回首页/);
     assert.doesNotMatch(html, /class="hero"|id="capabilities"|<iframe\b/);
     if (slug !== "media-studio") assert.doesNotMatch(html, /id="media-studio"/);
+    if (slug !== "wedding-photo") assert.doesNotMatch(html, /id="wedding-photo"/);
     if (slug !== "guests") assert.doesNotMatch(html, /id="guests"/);
     if (slug !== "copywriting") assert.doesNotMatch(html, /id="copywriting"/);
   }

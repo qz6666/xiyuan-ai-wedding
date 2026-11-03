@@ -2301,10 +2301,8 @@ export function WeddingPlanner({ view = "home" }: { view?: "home" | WeddingView 
   }, [view, workspaceLoaded]);
 
   useEffect(() => {
-    if (view === "media-studio" && window.location.hash === "#photo-library") {
-      setMediaKindFilter("场景效果图");
-    }
-  }, [view, workspaceLoaded]);
+    if (view === "wedding-photo") setMediaKindFilter("全部类型");
+  }, [view]);
 
   useEffect(() => {
     if (!pendingDestination) return;
@@ -7769,6 +7767,192 @@ export function WeddingPlanner({ view = "home" }: { view?: "home" | WeddingView 
           <p className="media-footnote">
             <HeartHandshake size={16} aria-hidden="true" />
             文案由 {mediaService.copy.model} 生成；场景效果图和证件照由 {mediaService.image.model} 生成；视频由 {mediaService.video.model} 异步渲染。3D 预览在本机实时运行，不消耗 API 额度。
+          </p>
+        </section>
+      )}
+
+      {view === "wedding-photo" && (
+        <section className="media-studio wedding-photo-page panel" id="wedding-photo" aria-labelledby="wedding-photo-title">
+          <div className="media-studio-heading">
+            <div className="section-title">
+              <ImageIcon size={20} aria-hidden="true" />
+              <div>
+                <h2 id="wedding-photo-title">婚礼照片</h2>
+                <p>上传婚礼照片和影像素材，按类型、名称或提示词筛选，再整理、收藏和下载。</p>
+              </div>
+            </div>
+            <div className="media-heading-actions">
+              <span className="media-service-status ready">
+                <ImageIcon size={14} aria-hidden="true" />
+                {mediaLibrary.length} 个素材
+              </span>
+              <span className="media-service-status ready">{formatStorageSize(mediaStorageTotal)}</span>
+            </div>
+          </div>
+
+          <div className="media-library-toolbar">
+            <div className="media-library-heading">
+              <FolderOpen size={19} aria-hidden="true" />
+              <div>
+                <strong>照片与素材库</strong>
+                <span>{mediaLibrary.length} 个素材 · {formatStorageSize(mediaStorageTotal)}</span>
+              </div>
+            </div>
+            <label className="media-search-field">
+              <Search size={16} aria-hidden="true" />
+              <input
+                value={mediaSearch}
+                onChange={(event) => setMediaSearch(event.target.value)}
+                placeholder="搜索照片名称、风格或提示词"
+                aria-label="搜索婚礼照片"
+              />
+            </label>
+            <select
+              value={mediaKindFilter}
+              onChange={(event) => setMediaKindFilter(event.target.value as MediaKindFilter)}
+              aria-label="照片类型"
+            >
+              {mediaKindFilters.map((filter) => <option key={filter}>{filter}</option>)}
+            </select>
+            <select
+              value={mediaSort}
+              onChange={(event) => setMediaSort(event.target.value as MediaSort)}
+              aria-label="照片排序"
+            >
+              {mediaSortOptions.map((option) => <option key={option}>{option}</option>)}
+            </select>
+            <input
+              ref={mediaUploadRef}
+              type="file"
+              accept="image/webp,image/png,image/jpeg,video/mp4"
+              onChange={(event) => void importMediaFile(event.target.files?.[0] || null)}
+              hidden
+            />
+            <button type="button" onClick={() => mediaUploadRef.current?.click()}>
+              <Upload size={16} aria-hidden="true" />
+              上传照片
+            </button>
+          </div>
+
+          <div className="media-batch-bar">
+            <button type="button" onClick={toggleAllVisibleMedia}>
+              {filteredMediaLibrary.length > 0 &&
+              filteredMediaLibrary.every((asset) => selectedMediaIds.includes(asset.id)) ? (
+                <CheckSquare size={16} aria-hidden="true" />
+              ) : (
+                <Square size={16} aria-hidden="true" />
+              )}
+              选择当前结果
+            </button>
+            <span>已选择 {selectedMediaIds.length} 个</span>
+            <button type="button" onClick={downloadSelectedMedia} disabled={selectedMediaIds.length === 0}>
+              <Download size={16} aria-hidden="true" />
+              批量下载
+            </button>
+            <button type="button" className="danger-action" onClick={() => void deleteSelectedMedia()} disabled={selectedMediaIds.length === 0}>
+              <Trash2 size={16} aria-hidden="true" />
+              批量删除
+            </button>
+          </div>
+
+          <div className="media-library">
+            {filteredMediaLibrary.map((asset) => (
+              <article className={`media-card ${selectedMediaIds.includes(asset.id) ? "selected" : ""}`} key={asset.id}>
+                <div className={`media-preview ratio-${asset.ratio.replace(":", "-")}`}>
+                  {asset.kind === "视频分镜" && asset.status === "completed" ? (
+                    <video src={asset.assetPath} controls playsInline preload="metadata" aria-label={`${asset.title}视频`} />
+                  ) : (
+                    <NextImage src={asset.assetPath} alt={`${asset.title}预览`} fill unoptimized sizes="(max-width: 640px) 100vw, (max-width: 980px) 50vw, 560px" />
+                  )}
+                  <div className="media-preview-top">
+                    <span>{asset.kind}</span>
+                    <span>{asset.ratio}</span>
+                    <span className={`generation-status ${asset.status}`}>{mediaStatusLabel(asset)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="media-select"
+                    onClick={() => toggleMediaSelection(asset.id)}
+                    aria-label={selectedMediaIds.includes(asset.id) ? `取消选择${asset.title}` : `选择${asset.title}`}
+                    aria-pressed={selectedMediaIds.includes(asset.id)}
+                    title={selectedMediaIds.includes(asset.id) ? "取消选择" : "选择照片"}
+                  >
+                    {selectedMediaIds.includes(asset.id) ? <CheckSquare size={18} aria-hidden="true" /> : <Square size={18} aria-hidden="true" />}
+                  </button>
+                  <button
+                    type="button"
+                    className={`media-favorite ${asset.favorite ? "selected" : ""}`}
+                    onClick={() => toggleMediaFavorite(asset.id)}
+                    aria-label={asset.favorite ? `取消收藏${asset.title}` : `收藏${asset.title}`}
+                    aria-pressed={asset.favorite}
+                    title={asset.favorite ? "取消收藏" : "收藏"}
+                  >
+                    <Heart size={17} fill={asset.favorite ? "currentColor" : "none"} aria-hidden="true" />
+                  </button>
+                </div>
+                <div className="media-card-body">
+                  <div className="media-card-title">
+                    <div>
+                      <span>{asset.style}</span>
+                      {editingAssetId === asset.id ? (
+                        <span className="media-title-editor">
+                          <input
+                            value={assetTitleDraft}
+                            onChange={(event) => setAssetTitleDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") saveMediaTitle(asset.id);
+                              if (event.key === "Escape") setEditingAssetId(null);
+                            }}
+                            aria-label="照片名称"
+                            autoFocus
+                          />
+                          <button type="button" onClick={() => saveMediaTitle(asset.id)} aria-label="保存照片名称" title="保存名称">
+                            <Save size={15} aria-hidden="true" />
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="media-title-display">
+                          <h3>{asset.title}</h3>
+                          <button type="button" onClick={() => startRenameMedia(asset)} aria-label={`重命名${asset.title}`} title="重命名">
+                            <Settings size={14} aria-hidden="true" />
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                    <small>{asset.createdAt}</small>
+                  </div>
+                  <div className="media-asset-meta">
+                    <span>{asset.model || "未知来源"}</span>
+                    <span>{formatStorageSize(asset.sizeBytes)}</span>
+                    <span>{asset.storageKey ? "云端素材" : "本机素材"}</span>
+                  </div>
+                  <p className="media-prompt">{asset.prompt}</p>
+                  <div className="media-actions">
+                    <button type="button" className="subtle-action" onClick={() => downloadMediaAsset(asset)} disabled={asset.status === "queued" || asset.status === "in_progress" || asset.status === "failed" || asset.status === "cancelled"}>
+                      <Download size={15} aria-hidden="true" />
+                      下载
+                    </button>
+                    <button type="button" className="delete-task" onClick={() => void deleteMediaAsset(asset.id)} aria-label={`删除${asset.title}`}>
+                      <Trash2 size={15} aria-hidden="true" />
+                      <span>删除</span>
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+            {filteredMediaLibrary.length === 0 && (
+              <div className="media-empty-state">
+                <ListFilter size={22} aria-hidden="true" />
+                <strong>还没有匹配的照片</strong>
+                <span>上传第一张婚礼照片，或切换筛选条件查看已有素材。</span>
+                <button type="button" onClick={() => mediaUploadRef.current?.click()}>上传照片</button>
+              </div>
+            )}
+          </div>
+
+          <p className="media-footnote">
+            <HeartHandshake size={16} aria-hidden="true" />
+            支持 WebP、PNG、JPG 和 MP4，单文件不超过 100MB。照片会优先保存到云端素材库；云端不可用时保留在当前设备。
           </p>
         </section>
       )}

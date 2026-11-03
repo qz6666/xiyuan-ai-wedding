@@ -6,6 +6,7 @@ export const weddingPages = {
   budget: { title: "婚礼预算", description: "查看预算上限、费用明细与付款进度。" },
   copywriting: { title: "AI 文案", description: "在这里整理请柬、誓词、致辞和你们的婚礼故事文案。" },
   "media-studio": { title: "AI 影像", description: "场景效果图、证件照、视频分镜和 3D 现场，在同一个工作台创作。" },
+  "wedding-photo": { title: "婚礼照片", description: "上传、筛选和整理你们的婚礼照片，所有影像素材集中在这里。" },
   "wedding-story": { title: "婚礼故事", description: "填写真实经历，整理属于你们的五幕故事。" },
   business: { title: "业务模块", description: "选择需要处理的婚礼事务，进入对应工具。" },
   collaboration: { title: "协助清单", description: "和家人、伴郎伴娘及婚礼团队一起确认筹备事项。" },
@@ -22,7 +23,7 @@ export const weddingPages = {
 export type WeddingView = keyof typeof weddingPages;
 
 export const primaryWeddingViews: WeddingView[] = [
-  "profile", "plan", "details", "copywriting", "media-studio", "wedding-story", "business", "collaboration",
+  "profile", "plan", "details", "copywriting", "media-studio", "wedding-photo", "wedding-story", "business", "collaboration",
 ];
 
 export const businessWeddingViews: WeddingView[] = [
@@ -37,6 +38,6 @@ export function weddingPageHref(view: string) {
   if (view === "capabilities") return "/#capabilities";
   if (view === "wedding-story") return "/wedding-story/";
   if (view === "portrait") return "/workspace/media-studio?kind=portrait";
-  if (view === "photo-library") return "/workspace/media-studio#photo-library";
+  if (view === "photo-library") return "/workspace/wedding-photo";
   return isWeddingView(view) ? `/workspace/${view}` : "/";
 }
